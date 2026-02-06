@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #FAFAF8;
+  --color-foreground: #0D0D0D;
+  --color-card: #FFFFFF;
+  --color-accent-green: #16A34A;
+  --color-accent-green-soft: #16A34A12;
+  --color-accent-red: #DC2626;
+  --color-accent-blue: #2563EB;
+  --color-accent-blue-soft: #2563EB10;
+  --color-muted: #9CA3AF;
+  --color-border: #D1D5DB;
+  --color-surface: #F3F4F6;
+  --font-serif: 'Instrument Serif', 'Georgia', serif;
+  --font-sans: 'DM Sans', 'Inter', sans-serif;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-rk] {
+  --rk-colors-accentColor: #0D0D0D !important;
+}

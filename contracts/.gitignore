@@ -1,0 +1,9 @@
+# Compiler output
+cache/
+out/
+
+# Environment
+.env
+
+# Broadcast logs (contain deployer info)
+broadcast/
