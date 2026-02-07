@@ -1,4 +1,4 @@
-export const HOOK_ABI = [
+export const VAULT_ABI = [
   {
     type: "function",
     name: "needsRebalance",
@@ -48,13 +48,6 @@ export const HOOK_ABI = [
         ],
       },
     ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "poolKeySet",
-    inputs: [],
-    outputs: [{ name: "", type: "bool" }],
     stateMutability: "view",
   },
   {

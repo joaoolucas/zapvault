@@ -5,7 +5,7 @@ import "./utils/BaseTest.sol";
 
 contract ZapVaultRouterTest is BaseTest {
     function test_routerDeployedCorrectly() public view {
-        assertEq(address(router.hook()), address(hook));
+        assertEq(address(router.vault()), address(vault));
         assertEq(address(router.usdc()), USDC_ADDRESS);
     }
 
@@ -17,16 +17,16 @@ contract ZapVaultRouterTest is BaseTest {
         USDC.transfer(address(router), amount);
 
         // Call deposit
-        router.deposit(alice, 1200, 500, 100);
+        router.deposit(alice, 480, 500, 100);
 
         // Verify position created
-        IZapVault.UserPosition memory pos = hook.getPosition(alice);
+        IZapVault.UserPosition memory pos = vault.getPosition(alice);
         assertGt(pos.liquidity, 0, "Position should exist");
         assertEq(pos.depositedUSDC, amount, "Deposited amount mismatch");
     }
 
     function test_revertDepositZeroAmount() public {
         vm.expectRevert(ZapVaultRouter.ZeroAmount.selector);
-        router.deposit(alice, 1200, 500, 100);
+        router.deposit(alice, 480, 500, 100);
     }
 }

@@ -2,7 +2,7 @@
 
 import { useAccount, useReadContract } from "wagmi";
 import { base } from "wagmi/chains";
-import { ADDRESSES, HOOK_ABI } from "@/lib/constants";
+import { ADDRESSES, VAULT_ABI } from "@/lib/constants";
 
 export interface Position {
   tickLower: number;
@@ -17,8 +17,8 @@ export function usePosition() {
   const { address } = useAccount();
 
   const { data: position, refetch: refetchPosition } = useReadContract({
-    address: ADDRESSES.HOOK,
-    abi: HOOK_ABI,
+    address: ADDRESSES.VAULT,
+    abi: VAULT_ABI,
     functionName: "getPosition",
     args: address ? [address] : undefined,
     chainId: base.id,
@@ -26,8 +26,8 @@ export function usePosition() {
   });
 
   const { data: needsRebalance, refetch: refetchRebalance } = useReadContract({
-    address: ADDRESSES.HOOK,
-    abi: HOOK_ABI,
+    address: ADDRESSES.VAULT,
+    abi: VAULT_ABI,
     functionName: "needsRebalance",
     args: address ? [address] : undefined,
     chainId: base.id,
@@ -35,8 +35,8 @@ export function usePosition() {
   });
 
   const { data: config } = useReadContract({
-    address: ADDRESSES.HOOK,
-    abi: HOOK_ABI,
+    address: ADDRESSES.VAULT,
+    abi: VAULT_ABI,
     functionName: "getConfig",
     args: address ? [address] : undefined,
     chainId: base.id,

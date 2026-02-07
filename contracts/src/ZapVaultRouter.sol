@@ -3,20 +3,20 @@ pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IZapVault} from "./interfaces/IZapVault.sol";
-import {ZapVaultHook} from "./ZapVaultHook.sol";
+import {ZapVault} from "./ZapVault.sol";
 
 /// @title ZapVaultRouter
 /// @notice Entry point for deposits. Supports both approve+deposit (frontend) and transfer+deposit (LI.FI).
 contract ZapVaultRouter {
-    ZapVaultHook public immutable hook;
+    ZapVault public immutable vault;
     IERC20 public immutable usdc;
     address public immutable owner;
 
     error ZeroAmount();
     error OnlyOwner();
 
-    constructor(address _hook, address _usdc) {
-        hook = ZapVaultHook(payable(_hook));
+    constructor(address _vault, address _usdc) {
+        vault = ZapVault(payable(_vault));
         usdc = IERC20(_usdc);
         owner = msg.sender;
     }
@@ -32,7 +32,6 @@ contract ZapVaultRouter {
     }
 
     /// @notice Deposit with explicit amount (approve pattern — frontend uses this)
-    /// @dev User must approve this router for USDC first. Atomic: transferFrom + deposit in one tx.
     function depositWithAmount(
         uint256 amount,
         int24 rangeWidth,
@@ -42,9 +41,9 @@ contract ZapVaultRouter {
         if (amount == 0) revert ZeroAmount();
 
         usdc.transferFrom(msg.sender, address(this), amount);
-        usdc.approve(address(hook), amount);
+        usdc.approve(address(vault), amount);
 
-        hook.deposit(
+        vault.deposit(
             msg.sender,
             amount,
             IZapVault.UserConfig({
@@ -56,7 +55,6 @@ contract ZapVaultRouter {
     }
 
     /// @notice Deposit using balance already in router (LI.FI Composer pattern)
-    /// @dev USDC must already be transferred to this contract before calling.
     function deposit(
         address user,
         int24 rangeWidth,
@@ -66,9 +64,9 @@ contract ZapVaultRouter {
         uint256 amount = usdc.balanceOf(address(this));
         if (amount == 0) revert ZeroAmount();
 
-        usdc.approve(address(hook), amount);
+        usdc.approve(address(vault), amount);
 
-        hook.deposit(
+        vault.deposit(
             user,
             amount,
             IZapVault.UserConfig({

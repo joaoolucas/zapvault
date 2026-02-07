@@ -3,10 +3,10 @@
 import { useState, useEffect } from "react";
 
 const UNISWAP_GATEWAY = "https://interface.gateway.uniswap.org/v1/graphql";
-const ETH_USDC_POOL = "0x6c561b446416e1a00e8e93e221854d6ea4171372";
+const V4_POOL_ID = "0x96d4b53a38337a5733179751781178a2613306063c511b78cd02684739288c0a";
 
 const QUERY = `query {
-  v3Pool(chain: BASE, address: "${ETH_USDC_POOL}") {
+  v4Pool(chain: BASE, poolId: "${V4_POOL_ID}") {
     feeTier
     totalLiquidity { value }
     cumulativeVolume(duration: DAY) { value }
@@ -32,10 +32,10 @@ export function usePoolAPR() {
         });
 
         const json = await res.json();
-        const pool = json?.data?.v3Pool;
+        const pool = json?.data?.v4Pool;
         if (!pool || cancelled) return;
 
-        const feeTier = pool.feeTier / 1_000_000; // 3000 -> 0.003
+        const feeTier = pool.feeTier / 1_000_000; // 500 -> 0.0005
         const tvl = pool.totalLiquidity.value;
         const volume24h = pool.cumulativeVolume.value;
 

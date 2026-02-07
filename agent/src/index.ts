@@ -12,10 +12,10 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import Anthropic from "@anthropic-ai/sdk";
-import { HOOK_ABI } from "./abi.js";
+import { VAULT_ABI } from "./abi.js";
 
 // --- Config ---
-const HOOK_ADDRESS = process.env.HOOK_ADDRESS as Address;
+const VAULT_ADDRESS = process.env.VAULT_ADDRESS as Address;
 const POOL_MANAGER = "0x498581fF718922c3f8e6A244956aF099B2652b2b" as Address;
 const POLL_INTERVAL = Number(process.env.POLL_INTERVAL_MS ?? 30_000);
 
@@ -46,12 +46,14 @@ function log(msg: string) {
 // --- Discover users from Deposited events ---
 async function discoverUsers() {
   try {
+    const currentBlock = await publicClient.getBlockNumber();
+    const fromBlock = currentBlock > 10000n ? currentBlock - 10000n : 0n;
     const logs = await publicClient.getLogs({
-      address: HOOK_ADDRESS,
+      address: VAULT_ADDRESS,
       event: parseAbiItem(
         "event Deposited(address indexed user, uint256 usdcAmount, int24 tickLower, int24 tickUpper, int256 liquidity)"
       ),
-      fromBlock: "earliest",
+      fromBlock,
       toBlock: "latest",
     });
 
@@ -71,20 +73,20 @@ async function discoverUsers() {
 async function getUserState(user: Address) {
   const [position, config, needs] = await Promise.all([
     publicClient.readContract({
-      address: HOOK_ADDRESS,
-      abi: HOOK_ABI,
+      address: VAULT_ADDRESS,
+      abi: VAULT_ABI,
       functionName: "getPosition",
       args: [user],
     }),
     publicClient.readContract({
-      address: HOOK_ADDRESS,
-      abi: HOOK_ABI,
+      address: VAULT_ADDRESS,
+      abi: VAULT_ABI,
       functionName: "getConfig",
       args: [user],
     }),
     publicClient.readContract({
-      address: HOOK_ADDRESS,
-      abi: HOOK_ABI,
+      address: VAULT_ADDRESS,
+      abi: VAULT_ABI,
       functionName: "needsRebalance",
       args: [user],
     }),
@@ -165,8 +167,8 @@ async function executeRebalance(user: Address): Promise<string | null> {
   try {
     const { request } = await publicClient.simulateContract({
       account,
-      address: HOOK_ADDRESS,
-      abi: HOOK_ABI,
+      address: VAULT_ADDRESS,
+      abi: VAULT_ABI,
       functionName: "rebalance",
       args: [user],
     });
@@ -239,7 +241,7 @@ async function main() {
   log("=================================");
   log("  ZapVault AI Keeper Agent");
   log("=================================");
-  log(`Hook: ${HOOK_ADDRESS}`);
+  log(`Vault: ${VAULT_ADDRESS}`);
   log(`Agent wallet: ${account.address}`);
   log(`Poll interval: ${POLL_INTERVAL / 1000}s`);
   log(`AI model: claude-opus-4-6`);

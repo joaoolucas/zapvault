@@ -6,7 +6,7 @@ import { base } from "wagmi/chains";
 import { formatUnits, parseAbiItem } from "viem";
 import { usePosition } from "@/hooks/usePositions";
 import { useENSConfig } from "@/hooks/useENSConfig";
-import { HOOK_ABI, ADDRESSES } from "@/lib/constants";
+import { VAULT_ABI, ADDRESSES } from "@/lib/constants";
 import { usePoolAPR } from "@/hooks/usePoolAPR";
 
 function tickToPrice(tick: number): number {
@@ -111,19 +111,19 @@ function ActivityLog() {
 
         const [depositLogs, rebalanceLogs, withdrawLogs] = await Promise.all([
           publicClient!.getLogs({
-            address: ADDRESSES.HOOK,
+            address: ADDRESSES.VAULT,
             event: parseAbiItem("event Deposited(address indexed user, uint256 usdcAmount, int24 tickLower, int24 tickUpper, int256 liquidity)"),
             args: { user: address },
             fromBlock,
           }),
           publicClient!.getLogs({
-            address: ADDRESSES.HOOK,
+            address: ADDRESSES.VAULT,
             event: parseAbiItem("event Rebalanced(address indexed user, int24 newTickLower, int24 newTickUpper)"),
             args: { user: address },
             fromBlock,
           }),
           publicClient!.getLogs({
-            address: ADDRESSES.HOOK,
+            address: ADDRESSES.VAULT,
             event: parseAbiItem("event Withdrawn(address indexed user, uint256 ethAmount, uint256 usdcAmount)"),
             args: { user: address },
             fromBlock,
@@ -223,7 +223,7 @@ function DetailsPanel({ position }: { position: any }) {
   const depositedUSDC = position ? Number(formatUnits(position.depositedUSDC, 6)) : 0;
 
   const details = [
-    { k: "Pool", v: "ETH/USDC · 0.3%" },
+    { k: "Pool", v: "ETH/USDC · 0.05%" },
     { k: "Deposited", v: `$${depositedUSDC.toFixed(2)}` },
     { k: "Range", v: position ? `${tickToPrice(position.tickLower).toFixed(0)} — ${tickToPrice(position.tickUpper).toFixed(0)}` : "—" },
     { k: "Managed by", v: "Claude Opus 4.6" },
@@ -239,17 +239,30 @@ function DetailsPanel({ position }: { position: any }) {
           <span className="text-foreground font-medium">{v}</span>
         </div>
       ))}
-      <a
-        href={`https://basescan.org/address/${ADDRESSES.HOOK}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-4 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-surface text-[12px] font-semibold text-accent-blue hover:bg-border transition-colors"
-      >
-        View on Basescan
-        <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
-          <path d="M6 3h7v7M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </a>
+      <div className="flex gap-2 mt-4">
+        <a
+          href="https://app.uniswap.org/explore/pools/base/0x96d4b53a38337a5733179751781178a2613306063c511b78cd02684739288c0a"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-surface text-[12px] font-semibold text-accent-blue hover:bg-border transition-colors"
+        >
+          View on Uniswap
+          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
+            <path d="M6 3h7v7M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </a>
+        <a
+          href={`https://basescan.org/address/${ADDRESSES.VAULT}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-surface text-[12px] font-semibold text-accent-blue hover:bg-border transition-colors"
+        >
+          Basescan
+          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
+            <path d="M6 3h7v7M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </a>
+      </div>
     </div>
   );
 }
@@ -287,7 +300,7 @@ function PoweredBy() {
     <div className="p-4 rounded-xl bg-surface">
       <div className="text-[10px] text-muted uppercase tracking-[2px] mb-3">Powered by</div>
       {[
-        { name: "Uniswap v4", desc: "AutoRange Hook" },
+        { name: "Uniswap v4", desc: "Concentrated LP" },
         { name: "LI.FI", desc: "Cross-chain deposit" },
         { name: "ENS", desc: "Strategy config" },
         { name: "Claude Opus 4.6", desc: "AI Keeper agent" },
@@ -335,8 +348,8 @@ export function Dashboard({ onDeposit }: { onDeposit: () => void }) {
     if (!walletClient || !publicClient) return;
     try {
       const hash = await walletClient.writeContract({
-        address: ADDRESSES.HOOK,
-        abi: HOOK_ABI,
+        address: ADDRESSES.VAULT,
+        abi: VAULT_ABI,
         functionName: "withdraw",
         chain: base,
         gas: 800_000n,
@@ -366,7 +379,7 @@ export function Dashboard({ onDeposit }: { onDeposit: () => void }) {
             }`}>
               {inRange ? "In Range" : "Out of Range"}
             </span>
-            <span className="text-muted text-xs">ETH/USDC · 0.3%</span>
+            <span className="text-muted text-xs">ETH/USDC · 0.05%</span>
           </div>
         </div>
 

@@ -4,8 +4,7 @@ export const CHAIN_ID_MAINNET = 1;
 export const ADDRESSES = {
   POOL_MANAGER: "0x498581fF718922c3f8e6A244956aF099B2652b2b" as `0x${string}`,
   USDC: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`,
-  // These will be set after deployment
-  HOOK: (process.env.NEXT_PUBLIC_HOOK_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`,
+  VAULT: (process.env.NEXT_PUBLIC_VAULT_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`,
   ROUTER: (process.env.NEXT_PUBLIC_ROUTER_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`,
 } as const;
 
@@ -21,7 +20,7 @@ export const DEFAULTS = {
   SLIPPAGE: 100,
 } as const;
 
-export const HOOK_ABI = [
+export const VAULT_ABI = [
   {
     type: "function",
     name: "deposit",

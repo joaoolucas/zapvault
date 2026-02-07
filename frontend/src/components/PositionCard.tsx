@@ -4,7 +4,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagm
 import { base } from "wagmi/chains";
 import { formatUnits } from "viem";
 import { usePosition } from "@/hooks/usePositions";
-import { ADDRESSES, HOOK_ABI } from "@/lib/constants";
+import { ADDRESSES, VAULT_ABI } from "@/lib/constants";
 
 export function PositionCard() {
   const { address } = useAccount();
@@ -51,8 +51,8 @@ export function PositionCard() {
   const handleRebalance = () => {
     if (!address) return;
     writeRebalance({
-      address: ADDRESSES.HOOK,
-      abi: HOOK_ABI,
+      address: ADDRESSES.VAULT,
+      abi: VAULT_ABI,
       functionName: "rebalance",
       args: [address],
       chainId: base.id,
@@ -62,8 +62,8 @@ export function PositionCard() {
 
   const handleWithdraw = () => {
     writeWithdraw({
-      address: ADDRESSES.HOOK,
-      abi: HOOK_ABI,
+      address: ADDRESSES.VAULT,
+      abi: VAULT_ABI,
       functionName: "withdraw",
       args: [],
       chainId: base.id,
