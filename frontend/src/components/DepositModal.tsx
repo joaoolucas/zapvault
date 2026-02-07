@@ -5,8 +5,8 @@ import { useAccount, useReadContracts } from "wagmi";
 import { base } from "wagmi/chains";
 import { formatUnits } from "viem";
 import { useDeposit } from "@/hooks/useDeposit";
-import { useENSConfig } from "@/hooks/useENSConfig";
-import { ADDRESSES, ERC20_ABI } from "@/lib/constants";
+import { useENSConfig, type VaultConfig } from "@/hooks/useENSConfig";
+import { ADDRESSES, ERC20_ABI, DEFAULTS } from "@/lib/constants";
 
 interface ChainInfo {
   id: number;
@@ -205,11 +205,25 @@ function ChainDropdown({
 }
 
 export function DepositModal({ onClose, onDeposited }: { onClose: () => void; onDeposited?: () => void }) {
-  const [chain, setChain] = useState(0); // default Base
+  const [chain, setChain] = useState(0);
   const [amount, setAmount] = useState("");
+  const [showStrategy, setShowStrategy] = useState(false);
   const { address } = useAccount();
   const { deposit, step, isLoading } = useDeposit();
-  const { config } = useENSConfig();
+  const { config: ensConfig, ensName, hasENS, hasENSConfig } = useENSConfig();
+
+  // Local overrides — start from ENS config (or defaults)
+  const [localConfig, setLocalConfig] = useState<VaultConfig>(ensConfig);
+  const [useENS, setUseENS] = useState(true);
+
+  // Sync local config when ENS data loads
+  useEffect(() => {
+    if (hasENSConfig && useENS) {
+      setLocalConfig(ensConfig);
+    }
+  }, [hasENSConfig, ensConfig.rangeWidth, ensConfig.rebalanceThreshold, ensConfig.slippage]);
+
+  const activeConfig = useENS && hasENSConfig ? ensConfig : localConfig;
 
   // Fetch USDC balance on all chains
   const { data: balanceResults } = useReadContracts({
@@ -238,7 +252,7 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
 
   const handleDeposit = async () => {
     if (!amount || amountNum <= 0 || exceedsBalance) return;
-    await deposit(amount, config);
+    await deposit(amount, activeConfig);
     onDeposited?.();
   };
 
@@ -246,7 +260,7 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
     <div className="fixed inset-0 z-[200] flex items-center justify-center">
       <div onClick={onClose} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
-      <div className="relative w-[480px] bg-card rounded-2xl p-9 border border-border shadow-2xl">
+      <div className="relative w-[480px] max-h-[90vh] overflow-y-auto bg-card rounded-2xl p-9 border border-border shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between mb-7">
           <h2 className="font-serif text-2xl font-bold text-foreground tracking-tight">Deposit</h2>
@@ -301,20 +315,138 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
           </div>
         </div>
 
-        {/* Strategy summary */}
-        <div className="flex gap-4 mb-6 text-[11px]">
-          <div className="flex-1 text-center py-2 rounded-lg bg-surface">
-            <div className="text-muted mb-0.5">Range</div>
-            <div className="font-semibold text-foreground">±{config.rangeWidth / 2} ticks</div>
+        {/* Strategy config */}
+        <div className="mb-6">
+          <button
+            onClick={() => setShowStrategy(!showStrategy)}
+            className="w-full flex items-center justify-between cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Strategy</span>
+              {hasENS && hasENSConfig && useENS && (
+                <span className="text-[9px] font-semibold text-accent-blue px-1.5 py-0.5 rounded bg-accent-blue-soft">
+                  via {ensName}
+                </span>
+              )}
+              {hasENS && !hasENSConfig && (
+                <span className="text-[9px] font-semibold text-muted px-1.5 py-0.5 rounded bg-surface">
+                  no ENS records
+                </span>
+              )}
+            </div>
+            <svg
+              className={`w-3.5 h-3.5 text-muted transition-transform ${showStrategy ? "rotate-180" : ""}`}
+              viewBox="0 0 16 16"
+              fill="none"
+            >
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+
+          {/* Compact summary */}
+          <div className="flex gap-3 mt-3 text-[11px]">
+            <div className="flex-1 text-center py-2 rounded-lg bg-surface">
+              <div className="text-muted mb-0.5">Range</div>
+              <div className="font-semibold text-foreground">±{activeConfig.rangeWidth / 2} ticks</div>
+            </div>
+            <div className="flex-1 text-center py-2 rounded-lg bg-surface">
+              <div className="text-muted mb-0.5">Rebalance</div>
+              <div className="font-semibold text-foreground">{activeConfig.rebalanceThreshold / 100}%</div>
+            </div>
+            <div className="flex-1 text-center py-2 rounded-lg bg-surface">
+              <div className="text-muted mb-0.5">Slippage</div>
+              <div className="font-semibold text-foreground">{activeConfig.slippage / 100}%</div>
+            </div>
           </div>
-          <div className="flex-1 text-center py-2 rounded-lg bg-surface">
-            <div className="text-muted mb-0.5">Rebalance</div>
-            <div className="font-semibold text-foreground">{config.rebalanceThreshold / 100}%</div>
-          </div>
-          <div className="flex-1 text-center py-2 rounded-lg bg-surface">
-            <div className="text-muted mb-0.5">Slippage</div>
-            <div className="font-semibold text-foreground">{config.slippage / 100}%</div>
-          </div>
+
+          {/* Expanded strategy editor */}
+          {showStrategy && (
+            <div className="mt-4 p-4 rounded-xl border border-border bg-surface/50 space-y-4">
+              {/* ENS toggle */}
+              {hasENS && hasENSConfig && (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-[12px] font-semibold text-foreground">ENS Config</div>
+                    <div className="text-[11px] text-muted">Reading from {ensName}</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setUseENS(!useENS);
+                      if (useENS) setLocalConfig(ensConfig);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+                      useENS
+                        ? "bg-accent-blue-soft text-accent-blue"
+                        : "bg-surface text-muted border border-border"
+                    }`}
+                  >
+                    {useENS ? "ENS Active" : "Manual"}
+                  </button>
+                </div>
+              )}
+
+              {hasENS && hasENSConfig && useENS && (
+                <div className="text-[11px] text-accent-blue bg-accent-blue-soft rounded-lg p-3">
+                  Strategy loaded from ENS text records on {ensName}. Toggle to manual to override.
+                </div>
+              )}
+
+              {(!hasENS || !hasENSConfig) && (
+                <div className="text-[11px] text-muted bg-surface rounded-lg p-3">
+                  {!hasENS
+                    ? "No ENS name detected. Set vault.range, vault.rebalance, vault.slippage on your ENS to auto-configure."
+                    : "No strategy records found on your ENS. Set text records to auto-configure, or adjust manually."}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] text-muted mb-1">Range Width (ticks)</label>
+                <input
+                  type="number"
+                  value={activeConfig.rangeWidth}
+                  onChange={(e) => setLocalConfig({ ...localConfig, rangeWidth: parseInt(e.target.value) || DEFAULTS.RANGE_WIDTH })}
+                  disabled={useENS && hasENSConfig}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground disabled:opacity-50"
+                />
+                <p className="mt-1 text-[10px] text-muted">
+                  {activeConfig.rangeWidth} ticks = ±{(activeConfig.rangeWidth / 2)} ticks (~{(Math.pow(1.0001, activeConfig.rangeWidth) * 100 - 100).toFixed(1)}% price range)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-muted mb-1">Rebalance Threshold (bps)</label>
+                <input
+                  type="number"
+                  value={activeConfig.rebalanceThreshold}
+                  onChange={(e) => setLocalConfig({ ...localConfig, rebalanceThreshold: parseInt(e.target.value) || DEFAULTS.REBALANCE_THRESHOLD })}
+                  disabled={useENS && hasENSConfig}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground disabled:opacity-50"
+                />
+                <p className="mt-1 text-[10px] text-muted">{activeConfig.rebalanceThreshold} bps = {activeConfig.rebalanceThreshold / 100}% price move triggers rebalance</p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-muted mb-1">Max Slippage (bps)</label>
+                <input
+                  type="number"
+                  value={activeConfig.slippage}
+                  onChange={(e) => setLocalConfig({ ...localConfig, slippage: parseInt(e.target.value) || DEFAULTS.SLIPPAGE })}
+                  disabled={useENS && hasENSConfig}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground disabled:opacity-50"
+                />
+                <p className="mt-1 text-[10px] text-muted">{activeConfig.slippage} bps = {activeConfig.slippage / 100}% max slippage on swaps</p>
+              </div>
+
+              {hasENS && !hasENSConfig && (
+                <div className="text-[10px] text-muted pt-1">
+                  Set these ENS text records on <span className="font-semibold text-foreground">{ensName}</span> to auto-load your strategy:
+                  <span className="font-mono ml-1">vault.range</span>,
+                  <span className="font-mono ml-1">vault.rebalance</span>,
+                  <span className="font-mono ml-1">vault.slippage</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Submit */}

@@ -268,8 +268,10 @@ function DetailsPanel({ position }: { position: any }) {
 }
 
 function StrategyPanel({ config }: { config: any }) {
+  const { ensName, hasENS, hasENSConfig } = useENSConfig();
+
   const strategies = [
-    { k: "vault.range", v: config ? `±${(config.rangeWidth / 2).toFixed(0)} ticks` : "±600" },
+    { k: "vault.range", v: config ? `±${(config.rangeWidth / 2).toFixed(0)} ticks` : "±240" },
     { k: "vault.rebalance", v: config ? `${(config.rebalanceThreshold / 100).toFixed(0)}%` : "5%" },
     { k: "vault.slippage", v: config ? `${(config.slippage / 100).toFixed(1)}%` : "1%" },
   ];
@@ -278,9 +280,19 @@ function StrategyPanel({ config }: { config: any }) {
     <div className="bg-card rounded-2xl p-6 border border-border">
       <div className="flex items-center justify-between mb-4">
         <div className="font-serif text-xs text-muted uppercase tracking-[3px]">Strategy</div>
-        <span className="text-[10px] font-semibold text-accent-blue px-2 py-0.5 rounded bg-accent-blue-soft">
-          via ENS
-        </span>
+        {hasENS && hasENSConfig ? (
+          <span className="text-[10px] font-semibold text-accent-blue px-2 py-0.5 rounded bg-accent-blue-soft">
+            via {ensName}
+          </span>
+        ) : hasENS ? (
+          <span className="text-[10px] font-semibold text-muted px-2 py-0.5 rounded bg-surface">
+            defaults
+          </span>
+        ) : (
+          <span className="text-[10px] font-semibold text-muted px-2 py-0.5 rounded bg-surface">
+            no ENS
+          </span>
+        )}
       </div>
       {strategies.map(({ k, v }) => (
         <div key={k} className="flex items-center justify-between py-2 text-[13px] border-b border-surface last:border-none">
@@ -288,9 +300,23 @@ function StrategyPanel({ config }: { config: any }) {
           <span className="text-foreground font-bold">{v}</span>
         </div>
       ))}
-      <div className="mt-4 text-[11px] text-muted text-center py-2 px-3 rounded-lg bg-surface">
-        Read from ENS text records
-      </div>
+      {hasENS ? (
+        <a
+          href={`https://app.ens.domains/${ensName}?tab=records`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-surface text-[12px] font-semibold text-accent-blue hover:bg-border transition-colors"
+        >
+          {hasENSConfig ? "Edit on ENS" : "Set Records on ENS"}
+          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
+            <path d="M6 3h7v7M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </a>
+      ) : (
+        <div className="mt-4 text-[11px] text-muted text-center py-2 px-3 rounded-lg bg-surface">
+          Connect an ENS name to configure strategy via text records
+        </div>
+      )}
     </div>
   );
 }
