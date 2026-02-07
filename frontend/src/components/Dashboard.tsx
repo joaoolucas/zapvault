@@ -225,7 +225,7 @@ function DetailsPanel({ position }: { position: any }) {
   const details = [
     { k: "Pool", v: "ETH/USDC · 0.3%" },
     { k: "Deposited", v: `$${depositedUSDC.toFixed(2)}` },
-    { k: "Liquidity", v: position ? BigInt(position.liquidity).toLocaleString("en-US") : "0" },
+    { k: "Range", v: position ? `${tickToPrice(position.tickLower).toFixed(0)} — ${tickToPrice(position.tickUpper).toFixed(0)}` : "—" },
     { k: "Managed by", v: "Claude Opus 4.6" },
     { k: "Withdraw as", v: "ETH + USDC" },
   ];

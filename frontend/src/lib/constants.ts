@@ -16,7 +16,7 @@ export const ENS_KEYS = {
 } as const;
 
 export const DEFAULTS = {
-  RANGE_WIDTH: 1200,
+  RANGE_WIDTH: 480,
   REBALANCE_THRESHOLD: 500,
   SLIPPAGE: 100,
 } as const;

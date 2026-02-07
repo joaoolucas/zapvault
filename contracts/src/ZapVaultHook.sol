@@ -494,21 +494,13 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
         return (a * b) / c;
     }
 
-    /// @notice Check if a user's position needs rebalancing (uses oracle price)
+    /// @notice Check if a user's position needs rebalancing (oracle price outside LP range)
     function needsRebalance(address user) external view returns (bool) {
         UserPosition memory pos = positions[user];
         if (pos.liquidity == 0) return false;
 
-        UserConfig memory config = configs[user];
-
-        // Use oracle tick instead of pool tick for checking range
         int24 oracleTick = _getOracleTick();
-
-        int24 positionCenter = (pos.tickLower + pos.tickUpper) / 2;
-        int24 deviation = oracleTick > positionCenter ? oracleTick - positionCenter : positionCenter - oracleTick;
-        int24 threshold = int24(uint24(config.rebalanceThreshold)) * (pos.tickUpper - pos.tickLower) / 10000;
-
-        return deviation > threshold;
+        return oracleTick < pos.tickLower || oracleTick > pos.tickUpper;
     }
 
     function getPosition(address user) external view returns (UserPosition memory) {
