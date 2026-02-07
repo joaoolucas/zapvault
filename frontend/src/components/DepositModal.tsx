@@ -333,7 +333,7 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
           <div className="flex items-center justify-between mb-2">
             <label className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Amount</label>
             <span className="text-[11px] text-muted">
-              Balance: <span className="font-semibold text-foreground">{selectedBalance.toFixed(2)} USDC</span>
+              Balance: <button onClick={() => setAmount(selectedBalance.toFixed(6))} className="font-semibold text-foreground hover:text-accent-blue transition-colors cursor-pointer">{selectedBalance.toFixed(2)} USDC</button>
             </span>
           </div>
           <div className={`flex items-baseline gap-2 border-b-2 pb-2 ${exceedsBalance ? "border-accent-red" : "border-foreground"}`}>
