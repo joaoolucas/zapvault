@@ -127,6 +127,8 @@ export function useDeposit() {
           fromAmount: amount.toString(),
           toAddress: address,
           slippage: config.slippage / 10000,
+          // LI.Fuel: convert a small portion of bridged tokens into ETH on Base for gas
+          fromAmountForGas: "100000", // 0.10 USDC worth of gas — enough for approve + deposit
         });
 
         if (!quote.transactionRequest) {
