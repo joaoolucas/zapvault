@@ -5,14 +5,13 @@ import { useAccount, useEnsName } from "wagmi";
 import { mainnet } from "wagmi/chains";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { Dashboard } from "@/components/Dashboard";
 import { DepositModal } from "@/components/DepositModal";
-import { LandingHero } from "@/components/LandingHero";
-import { Landing } from "@/components/Landing";
 import { usePosition } from "@/hooks/usePositions";
 
-export default function Home() {
+export default function PositionsPage() {
   const [showDeposit, setShowDeposit] = useState(false);
-  const { address, isConnected } = useAccount();
+  const { address } = useAccount();
   const { data: ensName } = useEnsName({
     address,
     chainId: mainnet.id,
@@ -23,11 +22,7 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground">
       <Header ensName={ensName ?? undefined} />
 
-      {!isConnected ? (
-        <LandingHero onDeposit={() => setShowDeposit(true)} />
-      ) : (
-        <Landing onDeposit={() => setShowDeposit(true)} />
-      )}
+      <Dashboard onDeposit={() => setShowDeposit(true)} />
 
       <Footer />
 

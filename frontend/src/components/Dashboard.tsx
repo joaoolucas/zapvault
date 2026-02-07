@@ -1,8 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { base } from "wagmi/chains";
-import { formatUnits } from "viem";
+import { formatUnits, parseAbiItem } from "viem";
 import { usePosition } from "@/hooks/usePositions";
 import { useENSConfig } from "@/hooks/useENSConfig";
 import { HOOK_ABI, ADDRESSES } from "@/lib/constants";
@@ -76,26 +77,144 @@ function RangeChart({ tickLower, tickUpper, needsRebalance }: { tickLower: numbe
   );
 }
 
+interface Activity {
+  text: string;
+  time: string;
+  tag: string;
+  color: string;
+  txHash?: string;
+}
+
+function timeAgo(timestamp: bigint): string {
+  const now = Math.floor(Date.now() / 1000);
+  const diff = now - Number(timestamp);
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 function ActivityLog() {
-  const activities = [
-    { text: "Claude Opus 4.6 monitoring position", time: "Just now", tag: "AI AGENT", color: "text-accent-blue" },
-    { text: "Position deposited via ZapVault", time: "On deposit", tag: "DEPOSIT", color: "text-foreground" },
-  ];
+  const { address } = useAccount();
+  const publicClient = usePublicClient({ chainId: base.id });
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!address || !publicClient) return;
+
+    async function fetchEvents() {
+      try {
+        const currentBlock = await publicClient!.getBlockNumber();
+        // Look back ~10k blocks (~5.5h) — Chainstack range limit
+        const fromBlock = currentBlock > 10000n ? currentBlock - 10000n : 0n;
+
+        const [depositLogs, rebalanceLogs, withdrawLogs] = await Promise.all([
+          publicClient!.getLogs({
+            address: ADDRESSES.HOOK,
+            event: parseAbiItem("event Deposited(address indexed user, uint256 usdcAmount, int24 tickLower, int24 tickUpper, int256 liquidity)"),
+            args: { user: address },
+            fromBlock,
+          }),
+          publicClient!.getLogs({
+            address: ADDRESSES.HOOK,
+            event: parseAbiItem("event Rebalanced(address indexed user, int24 newTickLower, int24 newTickUpper)"),
+            args: { user: address },
+            fromBlock,
+          }),
+          publicClient!.getLogs({
+            address: ADDRESSES.HOOK,
+            event: parseAbiItem("event Withdrawn(address indexed user, uint256 ethAmount, uint256 usdcAmount)"),
+            args: { user: address },
+            fromBlock,
+          }),
+        ]);
+
+        const items: (Activity & { block: bigint })[] = [];
+
+        for (const log of depositLogs) {
+          const amount = Number(formatUnits(log.args.usdcAmount ?? 0n, 6));
+          const block = await publicClient!.getBlock({ blockNumber: log.blockNumber });
+          items.push({
+            text: `Deposited $${amount.toFixed(2)} USDC`,
+            time: timeAgo(block.timestamp),
+            tag: "DEPOSIT",
+            color: "text-accent-green",
+            txHash: log.transactionHash,
+            block: log.blockNumber,
+          });
+        }
+
+        for (const log of rebalanceLogs) {
+          const block = await publicClient!.getBlock({ blockNumber: log.blockNumber });
+          items.push({
+            text: `Position rebalanced to [${log.args.newTickLower}, ${log.args.newTickUpper}]`,
+            time: timeAgo(block.timestamp),
+            tag: "REBALANCE",
+            color: "text-accent-blue",
+            txHash: log.transactionHash,
+            block: log.blockNumber,
+          });
+        }
+
+        for (const log of withdrawLogs) {
+          const usdcAmt = Number(formatUnits(log.args.usdcAmount ?? 0n, 6));
+          const ethAmt = Number(formatUnits(log.args.ethAmount ?? 0n, 18));
+          const block = await publicClient!.getBlock({ blockNumber: log.blockNumber });
+          items.push({
+            text: `Withdrew ${ethAmt > 0 ? ethAmt.toFixed(4) + " ETH + " : ""}$${usdcAmt.toFixed(2)} USDC`,
+            time: timeAgo(block.timestamp),
+            tag: "WITHDRAW",
+            color: "text-accent-red",
+            txHash: log.transactionHash,
+            block: log.blockNumber,
+          });
+        }
+
+        items.sort((a, b) => Number(b.block - a.block));
+        setActivities(items);
+      } catch (e) {
+        console.error("Failed to fetch activity:", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchEvents();
+  }, [address, publicClient]);
 
   return (
     <div className="bg-card rounded-2xl p-7 border border-border">
       <div className="font-serif text-xs text-muted uppercase tracking-[3px] mb-5">Activity</div>
-      {activities.map((a, i) => (
-        <div key={i} className={`flex items-start justify-between py-3.5 ${i < activities.length - 1 ? "border-b border-surface" : ""}`}>
-          <div>
-            <div className="text-[13px] text-foreground leading-relaxed">{a.text}</div>
-            <div className="text-[11px] text-muted mt-0.5">{a.time}</div>
+      {loading ? (
+        <div className="text-[13px] text-muted py-4">Loading activity...</div>
+      ) : activities.length === 0 ? (
+        <div className="text-[13px] text-muted py-4">No activity yet</div>
+      ) : (
+        activities.map((a, i) => (
+          <div key={i} className={`flex items-start justify-between py-3.5 ${i < activities.length - 1 ? "border-b border-surface" : ""}`}>
+            <div>
+              <div className="text-[13px] text-foreground leading-relaxed">{a.text}</div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[11px] text-muted">{a.time}</span>
+                {a.txHash && (
+                  <a
+                    href={`https://basescan.org/tx/${a.txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-accent-blue hover:underline"
+                  >
+                    View tx
+                  </a>
+                )}
+              </div>
+            </div>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide flex-shrink-0 ml-4 ${a.color} bg-surface`}>
+              {a.tag}
+            </span>
           </div>
-          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide flex-shrink-0 ml-4 ${a.color} bg-surface`}>
-            {a.tag}
-          </span>
-        </div>
-      ))}
+        ))
+      )}
     </div>
   );
 }
@@ -106,7 +225,7 @@ function DetailsPanel({ position }: { position: any }) {
   const details = [
     { k: "Pool", v: "ETH/USDC · 0.3%" },
     { k: "Deposited", v: `$${depositedUSDC.toFixed(2)}` },
-    { k: "Liquidity", v: position ? BigInt(position.liquidity).toLocaleString() : "0" },
+    { k: "Liquidity", v: position ? BigInt(position.liquidity).toLocaleString("en-US") : "0" },
     { k: "Managed by", v: "Claude Opus 4.6" },
     { k: "Withdraw as", v: "ETH + USDC" },
   ];
@@ -120,6 +239,17 @@ function DetailsPanel({ position }: { position: any }) {
           <span className="text-foreground font-medium">{v}</span>
         </div>
       ))}
+      <a
+        href={`https://basescan.org/address/${ADDRESSES.HOOK}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-4 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-surface text-[12px] font-semibold text-accent-blue hover:bg-border transition-colors"
+      >
+        View on Basescan
+        <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
+          <path d="M6 3h7v7M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </a>
     </div>
   );
 }
@@ -171,85 +301,31 @@ function PoweredBy() {
   );
 }
 
-function EmptyState({ onDeposit, aprFormatted }: { onDeposit: () => void; aprFormatted: string }) {
-  return (
-    <div className="px-12 pt-16 pb-40">
-      <div className="max-w-4xl mx-auto">
-        {/* Hero */}
-        <div className="text-center mb-16">
-          <p className="font-serif text-xs text-muted uppercase tracking-[4px] mb-4">No Active Position</p>
-          <h2 className="font-serif text-6xl font-bold text-foreground tracking-tighter leading-[0.9] mb-4">
-            Start earning<br /><span className="italic font-normal">on autopilot</span>
-          </h2>
-          <p className="text-sm text-muted leading-relaxed max-w-md mx-auto mb-10">
-            Deposit USDC from any chain. Your LP is managed by Claude Opus 4.6 —
-            an AI agent that monitors and rebalances your position 24/7.
-          </p>
-          <button
-            onClick={onDeposit}
-            className="px-8 py-4 bg-foreground text-background text-sm font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer"
-          >
-            Deposit from Anywhere &rarr;
-          </button>
-        </div>
-
-        {/* Value props */}
-        <div className="grid grid-cols-3 gap-5 mb-12">
-          <div className="bg-card border border-border rounded-2xl p-7">
-            <div className="text-[10px] text-muted uppercase tracking-[2px] mb-3">Pool APR (24h)</div>
-            <div className="font-serif text-4xl font-bold text-accent-green tracking-tight mb-2">{aprFormatted}</div>
-            <p className="text-xs text-muted leading-relaxed">
-              Concentrated ETH/USDC liquidity with 0.3% fee tier on Uniswap v4
-            </p>
-          </div>
-          <div className="bg-card border border-border rounded-2xl p-7">
-            <div className="text-[10px] text-muted uppercase tracking-[2px] mb-3">AI Managed</div>
-            <div className="font-serif text-4xl font-bold text-foreground tracking-tight mb-2">24/7</div>
-            <p className="text-xs text-muted leading-relaxed">
-              Claude Opus 4.6 monitors your position and rebalances when out of range
-            </p>
-          </div>
-          <div className="bg-card border border-border rounded-2xl p-7">
-            <div className="text-[10px] text-muted uppercase tracking-[2px] mb-3">Cross-Chain</div>
-            <div className="font-serif text-4xl font-bold text-foreground tracking-tight mb-2">1-click</div>
-            <p className="text-xs text-muted leading-relaxed">
-              Deposit any token from any EVM chain via LI.FI Composer in a single transaction
-            </p>
-          </div>
-        </div>
-
-        {/* How it works */}
-        <div className="bg-card border border-border rounded-2xl p-8">
-          <div className="font-serif text-xs text-muted uppercase tracking-[3px] mb-6">How it works</div>
-          <div className="grid grid-cols-4 gap-6">
-            {[
-              { step: "01", title: "Deposit", desc: "Any token, any EVM chain. LI.FI swaps & bridges to Base USDC." },
-              { step: "02", title: "Split & LP", desc: "Hook swaps 50% USDC → ETH and adds concentrated liquidity." },
-              { step: "03", title: "AI Monitor", desc: "Claude Opus 4.6 watches your position and market conditions." },
-              { step: "04", title: "Rebalance", desc: "When out of range, the AI agent automatically rebalances." },
-            ].map(({ step, title, desc }) => (
-              <div key={step}>
-                <div className="text-[11px] text-muted font-medium mb-2">{step}</div>
-                <div className="text-sm font-semibold text-foreground mb-1">{title}</div>
-                <div className="text-xs text-muted leading-relaxed">{desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function Dashboard({ onDeposit, hasPosition }: { onDeposit: () => void; hasPosition: boolean }) {
+export function Dashboard({ onDeposit }: { onDeposit: () => void }) {
   const { address } = useAccount();
   const { position, needsRebalance, config, refetch } = usePosition();
   const publicClient = usePublicClient({ chainId: base.id });
   const { data: walletClient } = useWalletClient({ chainId: base.id });
   const { formatted: aprFormatted } = usePoolAPR();
 
-  if (!hasPosition || !position) {
-    return <EmptyState onDeposit={onDeposit} aprFormatted={aprFormatted} />;
+  if (!position) {
+    return (
+      <div className="px-12 pt-24 pb-40 text-center">
+        <p className="font-serif text-xs text-muted uppercase tracking-[4px] mb-4">No Active Position</p>
+        <h2 className="font-serif text-5xl font-bold text-foreground tracking-tighter leading-[0.9] mb-4">
+          Nothing here yet
+        </h2>
+        <p className="text-sm text-muted leading-relaxed max-w-sm mx-auto mb-8">
+          Deposit USDC to create your first managed LP position.
+        </p>
+        <button
+          onClick={onDeposit}
+          className="px-8 py-4 bg-foreground text-background text-sm font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer"
+        >
+          Deposit
+        </button>
+      </div>
+    );
   }
 
   const depositedUSDC = Number(formatUnits(position.depositedUSDC, 6));
@@ -299,7 +375,7 @@ export function Dashboard({ onDeposit, hasPosition }: { onDeposit: () => void; h
             onClick={onDeposit}
             className="px-7 py-3.5 text-sm font-bold bg-foreground text-background rounded-xl hover:opacity-90 transition-opacity cursor-pointer"
           >
-            Deposit from Anywhere &rarr;
+            Deposit
           </button>
           <button
             onClick={handleWithdraw}

@@ -1,24 +1,47 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 
 export function Header({ ensName }: { ensName?: string }) {
   const { isConnected, address } = useAccount();
+  const pathname = usePathname();
 
   const displayName = ensName ?? (address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "");
 
   return (
     <header className="flex items-center justify-between px-12 py-5 border-b border-border">
-      <div className="font-serif text-xl tracking-tight text-foreground">
-        <span className="font-bold">Zap</span>
-        <span className="font-normal">Vault</span>
+      <div className="flex items-center gap-8">
+        <Link href="/" className="font-serif text-xl tracking-tight text-foreground">
+          <span className="font-bold">Zap</span>
+          <span className="font-normal">Vault</span>
+        </Link>
+
+        {isConnected && (
+          <nav className="flex items-center gap-1">
+            <Link
+              href="/"
+              className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
+                pathname === "/" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+              }`}
+            >
+              Home
+            </Link>
+            <Link
+              href="/positions"
+              className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
+                pathname === "/positions" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+              }`}
+            >
+              Your Positions
+            </Link>
+          </nav>
+        )}
       </div>
 
       <div className="flex items-center gap-3 text-sm">
-        {isConnected && (
-          <span className="text-muted text-xs tracking-wide">Base</span>
-        )}
         <ConnectButton.Custom>
           {({ account, chain, openConnectModal, openAccountModal, mounted }) => {
             const connected = mounted && account && chain;
