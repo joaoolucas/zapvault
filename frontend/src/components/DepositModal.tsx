@@ -40,53 +40,11 @@ const CHAINS: ChainInfo[] = [
     color: "#28A0F0",
   },
   {
-    id: 10,
-    name: "Optimism",
-    usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
-    icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png",
-    color: "#FF0420",
-  },
-  {
     id: 137,
     name: "Polygon",
     usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
     icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png",
     color: "#8247E5",
-  },
-  {
-    id: 43114,
-    name: "Avalanche",
-    usdc: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-    icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png",
-    color: "#E84142",
-  },
-  {
-    id: 534352,
-    name: "Scroll",
-    usdc: "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4",
-    icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/scroll/info/logo.png",
-    color: "#FFEEDA",
-  },
-  {
-    id: 59144,
-    name: "Linea",
-    usdc: "0x176211869cA2b568f2A7D4EE941E073a821EE1ff",
-    icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/linea/info/logo.png",
-    color: "#121212",
-  },
-  {
-    id: 324,
-    name: "zkSync Era",
-    usdc: "0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4",
-    icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/zksync/info/logo.png",
-    color: "#8C8DFC",
-  },
-  {
-    id: 100,
-    name: "Gnosis",
-    usdc: "0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83",
-    icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/xdai/info/logo.png",
-    color: "#04795B",
   },
 ];
 
