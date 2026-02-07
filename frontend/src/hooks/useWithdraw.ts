@@ -117,7 +117,7 @@ export function useWithdraw() {
           throw new Error("No USDC received from vault withdrawal");
         }
 
-        // Step 3: Get LI.FI bridge quote
+        // Step 3: Get LI.FI bridge quote (LI.Fuel converts a small portion to destination gas)
         setStep("bridge-quote");
         const quote = await getQuote({
           fromAddress: address,
@@ -128,6 +128,7 @@ export function useWithdraw() {
           fromAmount: usdcBalance.toString(),
           toAddress: address,
           slippage: 0.01,
+          fromAmountForGas: "100000", // 0.10 USDC → native gas on destination chain
         });
 
         if (!quote.transactionRequest) {

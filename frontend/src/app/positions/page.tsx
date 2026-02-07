@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAccount } from "wagmi";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Dashboard } from "@/components/Dashboard";
@@ -14,11 +15,23 @@ export default function PositionsPage() {
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const router = useRouter();
-  const { position, refetch } = usePosition();
+  const { isConnected } = useAccount();
+  const { position, hasPosition, refetch } = usePosition();
+
+  // Redirect to home if not connected or no position
+  useEffect(() => {
+    if (!isConnected || (isConnected && position !== undefined && !hasPosition)) {
+      router.replace("/");
+    }
+  }, [isConnected, position, hasPosition, router]);
 
   const depositedUSDC = position
     ? Number(formatUnits(position.depositedUSDC, 6))
     : 0;
+
+  if (!isConnected || !hasPosition) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
