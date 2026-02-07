@@ -3,13 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount } from "wagmi";
+import { useAccount, useEnsName, useEnsAvatar } from "wagmi";
+import { mainnet } from "wagmi/chains";
 import { usePosition } from "@/hooks/usePositions";
 
-export function Header({ ensName }: { ensName?: string }) {
+export function Header() {
   const { isConnected, address } = useAccount();
   const { hasPosition } = usePosition();
   const pathname = usePathname();
+
+  const { data: ensName } = useEnsName({
+    address,
+    chainId: mainnet.id,
+  });
+
+  const { data: ensAvatar } = useEnsAvatar({
+    name: ensName ?? undefined,
+    chainId: mainnet.id,
+    query: { enabled: !!ensName },
+  });
 
   const displayName = ensName ?? (address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "");
 
@@ -50,12 +62,19 @@ export function Header({ ensName }: { ensName?: string }) {
             return (
               <button
                 onClick={connected ? openAccountModal : openConnectModal}
-                className={`px-4 py-2 rounded-full text-sm font-semibold transition-all cursor-pointer ${
+                className={`flex items-center gap-2.5 px-4 py-2 rounded-full text-sm font-semibold transition-all cursor-pointer ${
                   connected
                     ? "bg-foreground text-background"
                     : "bg-foreground text-background hover:opacity-90"
                 }`}
               >
+                {connected && ensAvatar && (
+                  <img
+                    src={ensAvatar}
+                    alt=""
+                    className="w-5 h-5 rounded-full"
+                  />
+                )}
                 {connected ? displayName : "Connect Wallet"}
               </button>
             );

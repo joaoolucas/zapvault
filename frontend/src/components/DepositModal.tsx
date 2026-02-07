@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useAccount, useReadContracts } from "wagmi";
-import { base } from "wagmi/chains";
+import { useAccount, useReadContracts, useEnsText, useEnsAvatar } from "wagmi";
+import { mainnet, base } from "wagmi/chains";
 import { formatUnits } from "viem";
 import { useDeposit } from "@/hooks/useDeposit";
 import { useENSConfig, type VaultConfig } from "@/hooks/useENSConfig";
-import { ADDRESSES, ERC20_ABI, DEFAULTS } from "@/lib/constants";
+import { ADDRESSES, ERC20_ABI, DEFAULTS, ENS_KEYS } from "@/lib/constants";
 
 interface ChainInfo {
   id: number;
@@ -212,18 +212,84 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
   const { deposit, step, isLoading } = useDeposit();
   const { config: ensConfig, ensName, hasENS, hasENSConfig } = useENSConfig();
 
+  // "Follow a strategist" state
+  const [followInput, setFollowInput] = useState("");
+  const [followName, setFollowName] = useState<string | undefined>(undefined);
+  const followDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Debounce ENS name input
+  useEffect(() => {
+    clearTimeout(followDebounce.current);
+    const trimmed = followInput.trim();
+    if (trimmed && trimmed.includes(".")) {
+      followDebounce.current = setTimeout(() => setFollowName(trimmed), 400);
+    } else {
+      setFollowName(undefined);
+    }
+    return () => clearTimeout(followDebounce.current);
+  }, [followInput]);
+
+  // Fetch strategist's ENS text records
+  const { data: followRange } = useEnsText({
+    name: followName,
+    key: ENS_KEYS.RANGE,
+    chainId: mainnet.id,
+    query: { enabled: !!followName },
+  });
+  const { data: followRebalance } = useEnsText({
+    name: followName,
+    key: ENS_KEYS.REBALANCE,
+    chainId: mainnet.id,
+    query: { enabled: !!followName },
+  });
+  const { data: followSlippage } = useEnsText({
+    name: followName,
+    key: ENS_KEYS.SLIPPAGE,
+    chainId: mainnet.id,
+    query: { enabled: !!followName },
+  });
+  const { data: followAvatar } = useEnsAvatar({
+    name: followName,
+    chainId: mainnet.id,
+    query: { enabled: !!followName },
+  });
+
+  const hasFollowConfig = !!(followRange || followRebalance || followSlippage);
+  const followConfig: VaultConfig | null = hasFollowConfig
+    ? {
+        rangeWidth: followRange ? parseInt(followRange) || DEFAULTS.RANGE_WIDTH : DEFAULTS.RANGE_WIDTH,
+        rebalanceThreshold: followRebalance ? parseInt(followRebalance) || DEFAULTS.REBALANCE_THRESHOLD : DEFAULTS.REBALANCE_THRESHOLD,
+        slippage: followSlippage ? parseInt(followSlippage) || DEFAULTS.SLIPPAGE : DEFAULTS.SLIPPAGE,
+      }
+    : null;
+
   // Local overrides — start from ENS config (or defaults)
   const [localConfig, setLocalConfig] = useState<VaultConfig>(ensConfig);
   const [useENS, setUseENS] = useState(true);
 
+  // Strategy source: follow > own ENS > manual
+  type StrategySource = "follow" | "ens" | "manual";
+  const [strategySource, setStrategySource] = useState<StrategySource>(hasENSConfig ? "ens" : "manual");
+
   // Sync local config when ENS data loads
   useEffect(() => {
-    if (hasENSConfig && useENS) {
+    if (hasENSConfig && strategySource === "ens") {
       setLocalConfig(ensConfig);
     }
   }, [hasENSConfig, ensConfig.rangeWidth, ensConfig.rebalanceThreshold, ensConfig.slippage]);
 
-  const activeConfig = useENS && hasENSConfig ? ensConfig : localConfig;
+  // Auto-switch to follow when strategist config loads
+  useEffect(() => {
+    if (hasFollowConfig && followName) {
+      setStrategySource("follow");
+    }
+  }, [hasFollowConfig, followName]);
+
+  const activeConfig = strategySource === "follow" && followConfig
+    ? followConfig
+    : strategySource === "ens" && hasENSConfig
+      ? ensConfig
+      : localConfig;
 
   // Fetch USDC balance on all chains
   const { data: balanceResults } = useReadContracts({
@@ -323,14 +389,22 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
           >
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Strategy</span>
-              {hasENS && hasENSConfig && useENS && (
+              {strategySource === "follow" && followConfig && followName && (
+                <span className="flex items-center gap-1.5 text-[9px] font-semibold text-accent-blue px-1.5 py-0.5 rounded bg-accent-blue-soft">
+                  {followAvatar && (
+                    <img src={followAvatar} alt="" className="w-3.5 h-3.5 rounded-full" />
+                  )}
+                  following {followName}
+                </span>
+              )}
+              {strategySource === "ens" && hasENSConfig && (
                 <span className="text-[9px] font-semibold text-accent-blue px-1.5 py-0.5 rounded bg-accent-blue-soft">
                   via {ensName}
                 </span>
               )}
-              {hasENS && !hasENSConfig && (
+              {strategySource === "manual" && (
                 <span className="text-[9px] font-semibold text-muted px-1.5 py-0.5 rounded bg-surface">
-                  no ENS records
+                  manual
                 </span>
               )}
             </div>
@@ -362,87 +436,121 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
           {/* Expanded strategy editor */}
           {showStrategy && (
             <div className="mt-4 p-4 rounded-xl border border-border bg-surface/50 space-y-4">
-              {/* ENS toggle */}
-              {hasENS && hasENSConfig && (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-[12px] font-semibold text-foreground">ENS Config</div>
-                    <div className="text-[11px] text-muted">Reading from {ensName}</div>
+              {/* Follow a strategist */}
+              <div>
+                <label className="block text-[11px] text-muted mb-1.5">Follow a strategist</label>
+                <div className="flex items-center gap-2">
+                  {followAvatar && hasFollowConfig && (
+                    <img src={followAvatar} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                  )}
+                  <input
+                    type="text"
+                    value={followInput}
+                    onChange={(e) => setFollowInput(e.target.value)}
+                    placeholder="vitalik.eth"
+                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground placeholder:text-muted/50"
+                  />
+                </div>
+                {followName && !hasFollowConfig && (
+                  <p className="mt-1.5 text-[10px] text-muted">
+                    No vault strategy records found on {followName}
+                  </p>
+                )}
+                {followName && hasFollowConfig && (
+                  <div className="mt-2 text-[11px] text-accent-blue bg-accent-blue-soft rounded-lg p-3">
+                    Using strategy from <span className="font-semibold">{followName}</span>: range ±{followConfig!.rangeWidth / 2}, rebalance {followConfig!.rebalanceThreshold / 100}%, slippage {followConfig!.slippage / 100}%
                   </div>
+                )}
+              </div>
+
+              {/* Source selector tabs */}
+              <div className="flex gap-1.5 p-1 rounded-lg bg-surface">
+                {hasFollowConfig && followName && (
                   <button
-                    onClick={() => {
-                      setUseENS(!useENS);
-                      if (useENS) setLocalConfig(ensConfig);
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
-                      useENS
+                    onClick={() => setStrategySource("follow")}
+                    className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                      strategySource === "follow"
                         ? "bg-accent-blue-soft text-accent-blue"
-                        : "bg-surface text-muted border border-border"
+                        : "text-muted hover:text-foreground"
                     }`}
                   >
-                    {useENS ? "ENS Active" : "Manual"}
+                    Follow
                   </button>
-                </div>
+                )}
+                {hasENS && hasENSConfig && (
+                  <button
+                    onClick={() => setStrategySource("ens")}
+                    className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                      strategySource === "ens"
+                        ? "bg-accent-blue-soft text-accent-blue"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    My ENS
+                  </button>
+                )}
+                <button
+                  onClick={() => setStrategySource("manual")}
+                  className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                    strategySource === "manual"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  Manual
+                </button>
+              </div>
+
+              {/* Manual config inputs */}
+              {strategySource === "manual" && (
+                <>
+                  <div>
+                    <label className="block text-[11px] text-muted mb-1">Range Width (ticks)</label>
+                    <input
+                      type="number"
+                      value={localConfig.rangeWidth}
+                      onChange={(e) => setLocalConfig({ ...localConfig, rangeWidth: parseInt(e.target.value) || DEFAULTS.RANGE_WIDTH })}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
+                    />
+                    <p className="mt-1 text-[10px] text-muted">
+                      {localConfig.rangeWidth} ticks = ±{(localConfig.rangeWidth / 2)} ticks (~{(Math.pow(1.0001, localConfig.rangeWidth) * 100 - 100).toFixed(1)}% price range)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-muted mb-1">Rebalance Threshold (bps)</label>
+                    <input
+                      type="number"
+                      value={localConfig.rebalanceThreshold}
+                      onChange={(e) => setLocalConfig({ ...localConfig, rebalanceThreshold: parseInt(e.target.value) || DEFAULTS.REBALANCE_THRESHOLD })}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
+                    />
+                    <p className="mt-1 text-[10px] text-muted">{localConfig.rebalanceThreshold} bps = {localConfig.rebalanceThreshold / 100}% price move triggers rebalance</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-muted mb-1">Max Slippage (bps)</label>
+                    <input
+                      type="number"
+                      value={localConfig.slippage}
+                      onChange={(e) => setLocalConfig({ ...localConfig, slippage: parseInt(e.target.value) || DEFAULTS.SLIPPAGE })}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
+                    />
+                    <p className="mt-1 text-[10px] text-muted">{localConfig.slippage} bps = {localConfig.slippage / 100}% max slippage on swaps</p>
+                  </div>
+                </>
               )}
 
-              {hasENS && hasENSConfig && useENS && (
+              {/* Info messages */}
+              {strategySource === "ens" && hasENSConfig && (
                 <div className="text-[11px] text-accent-blue bg-accent-blue-soft rounded-lg p-3">
-                  Strategy loaded from ENS text records on {ensName}. Toggle to manual to override.
+                  Strategy loaded from your ENS text records on {ensName}.
                 </div>
               )}
 
-              {(!hasENS || !hasENSConfig) && (
-                <div className="text-[11px] text-muted bg-surface rounded-lg p-3">
-                  {!hasENS
-                    ? "No ENS name detected. Set vault.range, vault.rebalance, vault.slippage on your ENS to auto-configure."
-                    : "No strategy records found on your ENS. Set text records to auto-configure, or adjust manually."}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-[11px] text-muted mb-1">Range Width (ticks)</label>
-                <input
-                  type="number"
-                  value={activeConfig.rangeWidth}
-                  onChange={(e) => setLocalConfig({ ...localConfig, rangeWidth: parseInt(e.target.value) || DEFAULTS.RANGE_WIDTH })}
-                  disabled={useENS && hasENSConfig}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground disabled:opacity-50"
-                />
-                <p className="mt-1 text-[10px] text-muted">
-                  {activeConfig.rangeWidth} ticks = ±{(activeConfig.rangeWidth / 2)} ticks (~{(Math.pow(1.0001, activeConfig.rangeWidth) * 100 - 100).toFixed(1)}% price range)
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-[11px] text-muted mb-1">Rebalance Threshold (bps)</label>
-                <input
-                  type="number"
-                  value={activeConfig.rebalanceThreshold}
-                  onChange={(e) => setLocalConfig({ ...localConfig, rebalanceThreshold: parseInt(e.target.value) || DEFAULTS.REBALANCE_THRESHOLD })}
-                  disabled={useENS && hasENSConfig}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground disabled:opacity-50"
-                />
-                <p className="mt-1 text-[10px] text-muted">{activeConfig.rebalanceThreshold} bps = {activeConfig.rebalanceThreshold / 100}% price move triggers rebalance</p>
-              </div>
-
-              <div>
-                <label className="block text-[11px] text-muted mb-1">Max Slippage (bps)</label>
-                <input
-                  type="number"
-                  value={activeConfig.slippage}
-                  onChange={(e) => setLocalConfig({ ...localConfig, slippage: parseInt(e.target.value) || DEFAULTS.SLIPPAGE })}
-                  disabled={useENS && hasENSConfig}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground disabled:opacity-50"
-                />
-                <p className="mt-1 text-[10px] text-muted">{activeConfig.slippage} bps = {activeConfig.slippage / 100}% max slippage on swaps</p>
-              </div>
-
-              {hasENS && !hasENSConfig && (
+              {!hasENS && strategySource === "manual" && !hasFollowConfig && (
                 <div className="text-[10px] text-muted pt-1">
-                  Set these ENS text records on <span className="font-semibold text-foreground">{ensName}</span> to auto-load your strategy:
-                  <span className="font-mono ml-1">vault.range</span>,
-                  <span className="font-mono ml-1">vault.rebalance</span>,
-                  <span className="font-mono ml-1">vault.slippage</span>
+                  Connect an ENS name and set <span className="font-mono">vault.range</span>, <span className="font-mono">vault.rebalance</span>, <span className="font-mono">vault.slippage</span> text records to auto-load your strategy.
                 </div>
               )}
             </div>

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
-import { base } from "wagmi/chains";
+import { useAccount, usePublicClient, useWalletClient, useEnsName, useEnsAvatar } from "wagmi";
+import { mainnet, base } from "wagmi/chains";
 import { formatUnits, parseAbiItem } from "viem";
 import { usePosition } from "@/hooks/usePositions";
 import { useENSConfig } from "@/hooks/useENSConfig";
@@ -348,6 +348,13 @@ export function Dashboard({ onDeposit, onWithdrawn }: { onDeposit: () => void; o
   const rangeWidth = position ? Number(position.tickUpper) - Number(position.tickLower) : undefined;
   const { formatted: aprFormatted } = usePoolAPR(rangeWidth);
 
+  const { data: ensName } = useEnsName({ address, chainId: mainnet.id });
+  const { data: ensAvatar } = useEnsAvatar({
+    name: ensName ?? undefined,
+    chainId: mainnet.id,
+    query: { enabled: !!ensName },
+  });
+
   if (!position) {
     return (
       <div className="px-12 pt-24 pb-40 text-center">
@@ -394,7 +401,14 @@ export function Dashboard({ onDeposit, onWithdrawn }: { onDeposit: () => void; o
       {/* Hero */}
       <div className="flex items-end justify-between pt-12 pb-9">
         <div>
-          <p className="font-serif text-xs text-muted uppercase tracking-[3px] mb-3">Your Position</p>
+          <div className="flex items-center gap-3 mb-3">
+            {ensAvatar && (
+              <img src={ensAvatar} alt="" className="w-8 h-8 rounded-full" />
+            )}
+            <p className="font-serif text-xs text-muted uppercase tracking-[3px]">
+              {ensName ? `${ensName}'s Position` : "Your Position"}
+            </p>
+          </div>
           <div className="font-serif text-7xl font-bold text-foreground tracking-[-4px] leading-[0.9]">
             ${depositedUSDC.toLocaleString(undefined, { minimumFractionDigits: 0 })}
           </div>
