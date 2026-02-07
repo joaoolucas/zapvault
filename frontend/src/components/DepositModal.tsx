@@ -61,13 +61,6 @@ const CHAINS: ChainInfo[] = [
     color: "#E84142",
   },
   {
-    id: 56,
-    name: "BNB Chain",
-    usdc: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
-    icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png",
-    color: "#F3BA2F",
-  },
-  {
     id: 534352,
     name: "Scroll",
     usdc: "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4",
@@ -94,13 +87,6 @@ const CHAINS: ChainInfo[] = [
     usdc: "0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83",
     icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/xdai/info/logo.png",
     color: "#04795B",
-  },
-  {
-    id: 250,
-    name: "Fantom",
-    usdc: "0x04068DA6C83AFCFA0e13ba15A6696662335D5B75",
-    icon: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/fantom/info/logo.png",
-    color: "#1969FF",
   },
 ];
 

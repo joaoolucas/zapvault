@@ -12,6 +12,7 @@ import {
 import {
   createConfig as createLiFiConfig,
   getContractCallsQuote,
+  getQuote,
   getStatus,
 } from "@lifi/sdk";
 import { ADDRESSES, ERC20_ABI, ROUTER_ABI } from "@/lib/constants";
@@ -95,7 +96,91 @@ export function useDeposit() {
     [address, basePublicClient, wagmiConfig]
   );
 
-  // Cross-chain deposit via LI.FI Composer (single tx: bridge + deposit atomically)
+  // Helper: approve + send a LI.FI tx on source chain, return bridge hash
+  const approveSendAndWait = useCallback(
+    async (
+      quote: { transactionRequest?: any; tool: string },
+      fromChainId: number,
+      fromTokenAddress: string,
+      amount: bigint
+    ) => {
+      if (!quote.transactionRequest) {
+        throw new Error("No transaction data in LI.FI quote");
+      }
+
+      setStep("approving");
+      await switchChain(wagmiConfig, { chainId: fromChainId });
+      const sourceWallet = await getWalletClient(wagmiConfig, {
+        chainId: fromChainId,
+      });
+
+      // Approve LI.FI contract to spend USDC on source chain
+      const lifiContract = quote.transactionRequest.to as `0x${string}`;
+      const approveHash = await sourceWallet.writeContract({
+        address: fromTokenAddress as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [lifiContract, amount],
+      });
+      await waitForTransactionReceipt(wagmiConfig, {
+        hash: approveHash,
+        chainId: fromChainId,
+      });
+
+      // Send the bridge tx
+      setStep("bridging");
+      const txReq = quote.transactionRequest;
+      const bridgeHash = await sourceWallet.sendTransaction({
+        to: txReq.to as `0x${string}`,
+        data: txReq.data as `0x${string}`,
+        value: txReq.value ? BigInt(txReq.value) : 0n,
+        gas: txReq.gasLimit ? BigInt(txReq.gasLimit) : undefined,
+      });
+
+      // Wait for source chain confirmation
+      await waitForTransactionReceipt(wagmiConfig, {
+        hash: bridgeHash,
+        chainId: fromChainId,
+      });
+
+      return bridgeHash;
+    },
+    [wagmiConfig]
+  );
+
+  // Helper: poll LI.FI bridge status until DONE
+  const pollBridgeStatus = useCallback(
+    async (bridgeHash: string, tool: string, fromChainId: number) => {
+      setStep("confirming");
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        try {
+          const status = await getStatus({
+            txHash: bridgeHash,
+            bridge: tool,
+            fromChain: fromChainId,
+            toChain: base.id,
+          });
+          if (status.status === "DONE") return;
+          if (status.status === "FAILED") {
+            throw new Error(
+              "Bridge failed. Check your wallet — funds may have been returned."
+            );
+          }
+        } catch (e: any) {
+          if (e.message?.includes("Bridge failed")) throw e;
+        }
+      }
+      throw new Error(
+        "Bridge is taking longer than expected. Check your positions shortly."
+      );
+    },
+    []
+  );
+
+  // Cross-chain deposit via LI.FI
+  // Primary: Composer (atomic bridge + deposit, one user tx)
+  // Fallback: bridge to user wallet + auto Base deposit
   const depositCrossChain = useCallback(
     async (
       usdcAmount: string,
@@ -108,9 +193,9 @@ export function useDeposit() {
       const amount = parseUnits(usdcAmount, 6);
 
       try {
-        // Step 1: Build the destination contract call
         setStep("bridging");
 
+        // Build deposit calldata for Composer
         const depositCallData = encodeFunctionData({
           abi: ROUTER_ABI,
           functionName: "deposit",
@@ -122,94 +207,115 @@ export function useDeposit() {
           ],
         });
 
-        // Step 2: Get LI.FI contract calls quote (bridge + deposit in one tx)
-        const quote = await getContractCallsQuote({
-          fromChain: fromChainId,
-          fromToken: fromTokenAddress,
-          fromAddress: address,
-          fromAmount: amount.toString(),
-          toChain: base.id,
-          toToken: ADDRESSES.USDC,
-          contractCalls: [
-            {
-              fromAmount: amount.toString(),
-              fromTokenAddress: ADDRESSES.USDC,
-              toContractAddress: ADDRESSES.ROUTER,
-              toContractCallData: depositCallData,
-              toContractGasLimit: "800000",
-            },
-          ],
-        });
-
-        if (!quote.transactionRequest) {
-          throw new Error("No transaction data in LI.FI quote");
+        // Try Composer (atomic bridge + deposit)
+        let composerQuote: any = null;
+        try {
+          composerQuote = await getContractCallsQuote({
+            fromChain: fromChainId,
+            fromToken: fromTokenAddress,
+            fromAddress: address,
+            fromAmount: amount.toString(),
+            toChain: base.id,
+            toToken: ADDRESSES.USDC,
+            contractCalls: [
+              {
+                fromAmount: amount.toString(),
+                fromTokenAddress: ADDRESSES.USDC,
+                toContractAddress: ADDRESSES.ROUTER,
+                toContractCallData: depositCallData,
+                toContractGasLimit: "800000",
+              },
+            ],
+          });
+        } catch {
+          // Composer not available for this route — will use fallback
         }
 
-        // Step 3: Approve USDC on source chain for LI.FI contract
-        setStep("approving");
-        await switchChain(wagmiConfig, { chainId: fromChainId });
-        const sourceWallet = await getWalletClient(wagmiConfig, {
-          chainId: fromChainId,
+        if (composerQuote?.transactionRequest) {
+          // === Composer path: atomic bridge + deposit ===
+          const bridgeHash = await approveSendAndWait(
+            composerQuote,
+            fromChainId,
+            fromTokenAddress,
+            amount
+          );
+          await pollBridgeStatus(bridgeHash, composerQuote.tool, fromChainId);
+          setStep("done");
+          return true;
+        }
+
+        // === Fallback path: bridge to user, then auto-deposit on Base ===
+        const quote = await getQuote({
+          fromAddress: address,
+          fromChain: fromChainId,
+          toChain: base.id,
+          fromToken: fromTokenAddress,
+          toToken: ADDRESSES.USDC,
+          fromAmount: amount.toString(),
+          toAddress: address,
+          slippage: config.slippage / 10000,
         });
 
-        const lifiContract = quote.transactionRequest.to as `0x${string}`;
-        const sourceApproveHash = await sourceWallet.writeContract({
-          address: fromTokenAddress as `0x${string}`,
+        const bridgeHash = await approveSendAndWait(
+          quote,
+          fromChainId,
+          fromTokenAddress,
+          amount
+        );
+        await pollBridgeStatus(bridgeHash, quote.tool, fromChainId);
+
+        // Bridge done — USDC is in user's wallet on Base. Auto-deposit.
+        await new Promise((r) => setTimeout(r, 3000));
+
+        setStep("approving");
+        await switchChain(wagmiConfig, { chainId: base.id });
+        const baseWallet = await getWalletClient(wagmiConfig, {
+          chainId: base.id,
+        });
+
+        // Read actual bridged balance (may differ from source amount due to fees)
+        const bridgedBalance = (await basePublicClient.readContract({
+          address: ADDRESSES.USDC,
+          abi: ERC20_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        })) as bigint;
+
+        const depositAmount = bridgedBalance < amount ? bridgedBalance : amount;
+
+        const approveHash = await baseWallet.writeContract({
+          address: ADDRESSES.USDC,
           abi: ERC20_ABI,
           functionName: "approve",
-          args: [lifiContract, amount],
+          args: [ADDRESSES.ROUTER, depositAmount],
+          chain: base,
         });
-        await waitForTransactionReceipt(wagmiConfig, {
-          hash: sourceApproveHash,
-          chainId: fromChainId,
-        });
-
-        // Step 4: Send the bridge + deposit tx (user's only signing step)
-        setStep("bridging");
-        const txReq = quote.transactionRequest;
-        const bridgeHash = await sourceWallet.sendTransaction({
-          to: txReq.to as `0x${string}`,
-          data: txReq.data as `0x${string}`,
-          value: txReq.value ? BigInt(txReq.value) : 0n,
-          gas: txReq.gasLimit ? BigInt(txReq.gasLimit) : undefined,
+        await basePublicClient.waitForTransactionReceipt({
+          hash: approveHash,
         });
 
-        // Wait for source chain confirmation
-        await waitForTransactionReceipt(wagmiConfig, {
-          hash: bridgeHash,
-          chainId: fromChainId,
+        setStep("depositing");
+        const depositHash = await baseWallet.writeContract({
+          address: ADDRESSES.ROUTER,
+          abi: ROUTER_ABI,
+          functionName: "depositWithAmount",
+          args: [
+            depositAmount,
+            config.rangeWidth,
+            config.rebalanceThreshold,
+            config.slippage,
+          ],
+          chain: base,
+          gas: 800_000n,
         });
 
-        // Step 5: Poll for bridge + deposit completion on Base
         setStep("confirming");
-        for (let i = 0; i < 120; i++) {
-          await new Promise((r) => setTimeout(r, 5000));
-          try {
-            const status = await getStatus({
-              txHash: bridgeHash,
-              bridge: quote.tool,
-              fromChain: fromChainId,
-              toChain: base.id,
-            });
-            if (status.status === "DONE") {
-              setStep("done");
-              return true;
-            }
-            if (status.status === "FAILED") {
-              throw new Error(
-                "Bridge failed. Check your wallet — funds may have been returned."
-              );
-            }
-          } catch (e: any) {
-            if (e.message?.includes("Bridge failed")) throw e;
-            // getStatus may throw before tx is indexed — keep polling
-          }
-        }
+        await basePublicClient.waitForTransactionReceipt({
+          hash: depositHash,
+        });
 
-        // If we get here, bridge timed out but may still complete
-        throw new Error(
-          "Bridge is taking longer than expected. Your deposit should complete shortly — check your positions."
-        );
+        setStep("done");
+        return true;
       } catch (e: any) {
         console.error("Cross-chain deposit failed:", e);
         setErrorMsg(
@@ -219,7 +325,13 @@ export function useDeposit() {
         return false;
       }
     },
-    [address, basePublicClient, wagmiConfig]
+    [
+      address,
+      basePublicClient,
+      wagmiConfig,
+      approveSendAndWait,
+      pollBridgeStatus,
+    ]
   );
 
   return {
