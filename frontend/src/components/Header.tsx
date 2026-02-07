@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
+import { usePosition } from "@/hooks/usePositions";
 
 export function Header({ ensName }: { ensName?: string }) {
   const { isConnected, address } = useAccount();
+  const { hasPosition } = usePosition();
   const pathname = usePathname();
 
   const displayName = ensName ?? (address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "");
@@ -19,7 +21,7 @@ export function Header({ ensName }: { ensName?: string }) {
           <span className="font-normal">Vault</span>
         </Link>
 
-        {isConnected && (
+        {isConnected && hasPosition && (
           <nav className="flex items-center gap-1">
             <Link
               href="/"

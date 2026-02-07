@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAccount, useEnsName } from "wagmi";
 import { mainnet } from "wagmi/chains";
 import { Header } from "@/components/Header";
@@ -12,6 +13,7 @@ import { usePosition } from "@/hooks/usePositions";
 
 export default function Home() {
   const [showDeposit, setShowDeposit] = useState(false);
+  const router = useRouter();
   const { address, isConnected } = useAccount();
   const { data: ensName } = useEnsName({
     address,
@@ -40,6 +42,7 @@ export default function Home() {
           onDeposited={() => {
             setShowDeposit(false);
             refetch();
+            router.push("/positions");
           }}
         />
       )}
