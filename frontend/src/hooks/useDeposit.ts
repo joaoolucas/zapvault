@@ -127,12 +127,28 @@ export function useDeposit() {
           throw new Error("No transaction data in LI.FI quote");
         }
 
-        // Step 2: Switch to source chain and send bridge tx
+        // Step 2: Switch to source chain, approve USDC, and send bridge tx
+        setStep("approving");
         await switchChain(wagmiConfig, { chainId: fromChainId });
         const sourceWallet = await getWalletClient(wagmiConfig, {
           chainId: fromChainId,
         });
 
+        // Approve LI.FI contract to spend USDC on source chain
+        const lifiContract = quote.transactionRequest.to as `0x${string}`;
+        const sourceApproveHash = await sourceWallet.writeContract({
+          address: fromTokenAddress as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [lifiContract, amount],
+        });
+        await waitForTransactionReceipt(wagmiConfig, {
+          hash: sourceApproveHash,
+          chainId: fromChainId,
+        });
+
+        // Send the bridge tx
+        setStep("bridging");
         const txReq = quote.transactionRequest;
         const bridgeHash = await sourceWallet.sendTransaction({
           to: txReq.to as `0x${string}`,
