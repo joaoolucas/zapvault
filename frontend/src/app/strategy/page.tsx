@@ -3,8 +3,11 @@
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { RegisterStrategy } from "@/components/RegisterStrategy";
+import { useENSConfig } from "@/hooks/useENSConfig";
 
 export default function StrategyPage() {
+  const { hasENS, hasENSConfig, ensName } = useENSConfig();
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
@@ -12,13 +15,21 @@ export default function StrategyPage() {
       <div className="px-12 pt-16 pb-40">
         <div className="max-w-2xl mx-auto">
           <div className="text-center mb-10">
-            <p className="font-serif text-xs text-muted uppercase tracking-[4px] mb-4">ENS Text Records</p>
+            <p className="font-serif text-xs text-muted uppercase tracking-[4px] mb-4">
+              {hasENSConfig ? "ENS Strategy" : "ENS Text Records"}
+            </p>
             <h2 className="font-serif text-5xl font-bold text-foreground tracking-tighter leading-[0.9] mb-4">
-              Your strategy,<br /><span className="italic font-normal">on-chain</span>
+              {hasENSConfig ? (
+                <>Your strategy,<br /><span className="italic font-normal">live on-chain</span></>
+              ) : (
+                <>Your strategy,<br /><span className="italic font-normal">on-chain</span></>
+              )}
             </h2>
             <p className="text-sm text-muted leading-relaxed max-w-md mx-auto">
-              Register your LP strategy as ENS text records. Anyone can follow your
-              config when depositing into ZapVault.
+              {hasENSConfig
+                ? `Your LP strategy is stored on ${ensName}. Anyone can follow your config when depositing.`
+                : "Register your LP strategy as ENS text records. Anyone can follow your config when depositing into ZapVault."
+              }
             </p>
           </div>
 
