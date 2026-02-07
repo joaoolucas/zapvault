@@ -36,7 +36,7 @@ export function Header() {
           <span className="font-normal">Vault</span>
         </Link>
 
-        {isConnected && hasPosition && (
+        {isConnected && (
           <nav className="flex items-center gap-1">
             <Link
               href="/"
@@ -46,13 +46,23 @@ export function Header() {
             >
               Home
             </Link>
+            {hasPosition && (
+              <Link
+                href="/positions"
+                className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
+                  pathname === "/positions" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+                }`}
+              >
+                Positions
+              </Link>
+            )}
             <Link
-              href="/positions"
+              href="/strategy"
               className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
-                pathname === "/positions" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+                pathname === "/strategy" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
               }`}
             >
-              Your Positions
+              Strategy
             </Link>
           </nav>
         )}
