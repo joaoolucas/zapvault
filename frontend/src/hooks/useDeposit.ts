@@ -1,15 +1,24 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useConfig } from "wagmi";
 import { base } from "wagmi/chains";
-import { parseUnits, encodeFunctionData } from "viem";
-import { createConfig, getQuote, executeRoute, convertQuoteToRoute } from "@lifi/sdk";
+import { parseUnits } from "viem";
+import {
+  switchChain,
+  getWalletClient,
+  waitForTransactionReceipt,
+} from "wagmi/actions";
+import {
+  createConfig as createLiFiConfig,
+  getQuote,
+  getStatus,
+} from "@lifi/sdk";
 import { ADDRESSES, ERC20_ABI, ROUTER_ABI } from "@/lib/constants";
 import type { VaultConfig } from "./useENSConfig";
 
 // Initialize LI.FI SDK
-createConfig({
+createLiFiConfig({
   integrator: "ZapVault",
 });
 
@@ -24,19 +33,25 @@ export type DepositStep =
 
 export function useDeposit() {
   const { address } = useAccount();
-  const publicClient = usePublicClient({ chainId: base.id });
-  const { data: walletClient } = useWalletClient({ chainId: base.id });
+  const basePublicClient = usePublicClient({ chainId: base.id });
+  const wagmiConfig = useConfig();
   const [step, setStep] = useState<DepositStep>("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
   // Direct deposit on Base
   const depositBase = useCallback(
     async (usdcAmount: string, config: VaultConfig): Promise<boolean> => {
-      if (!address || !walletClient || !publicClient) return false;
+      if (!address || !basePublicClient) return false;
 
       const amount = parseUnits(usdcAmount, 6);
 
       try {
+        // Ensure we're on Base
+        await switchChain(wagmiConfig, { chainId: base.id });
+        const walletClient = await getWalletClient(wagmiConfig, {
+          chainId: base.id,
+        });
+
         setStep("approving");
         const approveHash = await walletClient.writeContract({
           address: ADDRESSES.USDC,
@@ -45,7 +60,9 @@ export function useDeposit() {
           args: [ADDRESSES.ROUTER, amount],
           chain: base,
         });
-        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        await basePublicClient.waitForTransactionReceipt({
+          hash: approveHash,
+        });
 
         setStep("depositing");
         const depositHash = await walletClient.writeContract({
@@ -63,7 +80,9 @@ export function useDeposit() {
         });
 
         setStep("confirming");
-        await publicClient.waitForTransactionReceipt({ hash: depositHash });
+        await basePublicClient.waitForTransactionReceipt({
+          hash: depositHash,
+        });
 
         setStep("done");
         return true;
@@ -74,10 +93,10 @@ export function useDeposit() {
         return false;
       }
     },
-    [address, walletClient, publicClient]
+    [address, basePublicClient, wagmiConfig]
   );
 
-  // Cross-chain deposit via LI.FI: bridge to Base USDC → user's wallet, then deposit on Base
+  // Cross-chain deposit via LI.FI: bridge to Base USDC, then deposit
   const depositCrossChain = useCallback(
     async (
       usdcAmount: string,
@@ -85,12 +104,12 @@ export function useDeposit() {
       fromChainId: number,
       fromTokenAddress: string
     ): Promise<boolean> => {
-      if (!address || !walletClient || !publicClient) return false;
+      if (!address || !basePublicClient) return false;
 
       const amount = parseUnits(usdcAmount, 6);
 
       try {
-        // Step 1: Get LI.FI quote — bridge USDC to user on Base
+        // Step 1: Get LI.FI quote for bridge
         setStep("bridging");
 
         const quote = await getQuote({
@@ -101,37 +120,86 @@ export function useDeposit() {
           toToken: ADDRESSES.USDC,
           fromAmount: amount.toString(),
           toAddress: address,
-          slippage: config.slippage / 10000, // bps to decimal
+          slippage: config.slippage / 10000,
         });
 
-        // Step 2: Execute the bridge route
-        const route = convertQuoteToRoute(quote);
-        await executeRoute(route, {
-          updateRouteHook: (updatedRoute) => {
-            const execution = updatedRoute.steps[0]?.execution;
-            if (execution?.status === "DONE") {
-              setStep("approving");
+        if (!quote.transactionRequest) {
+          throw new Error("No transaction data in LI.FI quote");
+        }
+
+        // Step 2: Switch to source chain and send bridge tx
+        await switchChain(wagmiConfig, { chainId: fromChainId });
+        const sourceWallet = await getWalletClient(wagmiConfig, {
+          chainId: fromChainId,
+        });
+
+        const txReq = quote.transactionRequest;
+        const bridgeHash = await sourceWallet.sendTransaction({
+          to: txReq.to as `0x${string}`,
+          data: txReq.data as `0x${string}`,
+          value: txReq.value ? BigInt(txReq.value) : 0n,
+          gas: txReq.gasLimit ? BigInt(txReq.gasLimit) : undefined,
+        });
+
+        // Wait for source chain confirmation
+        await waitForTransactionReceipt(wagmiConfig, {
+          hash: bridgeHash,
+          chainId: fromChainId,
+        });
+
+        // Step 3: Poll for bridge completion (up to 5 minutes)
+        let bridgeDone = false;
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 5000));
+          try {
+            const status = await getStatus({
+              txHash: bridgeHash,
+              bridge: quote.tool,
+              fromChain: fromChainId,
+              toChain: base.id,
+            });
+            if (status.status === "DONE") {
+              bridgeDone = true;
+              break;
             }
-          },
+            if (status.status === "FAILED") {
+              throw new Error("Bridge transaction failed");
+            }
+          } catch (e: any) {
+            // getStatus may throw before tx is indexed — keep polling
+            if (e.message === "Bridge transaction failed") throw e;
+          }
+        }
+
+        if (!bridgeDone) {
+          throw new Error(
+            "Bridge timed out. USDC may arrive later — check your Base wallet."
+          );
+        }
+
+        // Small buffer for indexing
+        await new Promise((r) => setTimeout(r, 3000));
+
+        // Step 4: Switch to Base and deposit into vault
+        setStep("approving");
+        await switchChain(wagmiConfig, { chainId: base.id });
+        const baseWallet = await getWalletClient(wagmiConfig, {
+          chainId: base.id,
         });
 
-        // Step 3: Bridge done — now do the Base deposit
-        // Small delay for USDC to be indexed
-        await new Promise((r) => setTimeout(r, 2000));
-
-        // Check actual USDC balance on Base
-        setStep("approving");
-        const approveHash = await walletClient.writeContract({
+        const approveHash = await baseWallet.writeContract({
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
           functionName: "approve",
           args: [ADDRESSES.ROUTER, amount],
           chain: base,
         });
-        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        await basePublicClient.waitForTransactionReceipt({
+          hash: approveHash,
+        });
 
         setStep("depositing");
-        const depositHash = await walletClient.writeContract({
+        const depositHash = await baseWallet.writeContract({
           address: ADDRESSES.ROUTER,
           abi: ROUTER_ABI,
           functionName: "depositWithAmount",
@@ -146,18 +214,22 @@ export function useDeposit() {
         });
 
         setStep("confirming");
-        await publicClient.waitForTransactionReceipt({ hash: depositHash });
+        await basePublicClient.waitForTransactionReceipt({
+          hash: depositHash,
+        });
 
         setStep("done");
         return true;
       } catch (e: any) {
         console.error("Cross-chain deposit failed:", e);
-        setErrorMsg(e?.shortMessage || e?.message || "Cross-chain deposit failed");
+        setErrorMsg(
+          e?.shortMessage || e?.message || "Cross-chain deposit failed"
+        );
         setStep("error");
         return false;
       }
     },
-    [address, walletClient, publicClient]
+    [address, basePublicClient, wagmiConfig]
   );
 
   return {
