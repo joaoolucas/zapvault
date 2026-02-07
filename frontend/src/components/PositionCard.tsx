@@ -56,6 +56,7 @@ export function PositionCard() {
       functionName: "rebalance",
       args: [address],
       chainId: base.id,
+      gas: 800_000n,
     });
   };
 
@@ -66,6 +67,7 @@ export function PositionCard() {
       functionName: "withdraw",
       args: [],
       chainId: base.id,
+      gas: 800_000n,
     });
   };
 

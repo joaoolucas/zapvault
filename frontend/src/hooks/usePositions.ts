@@ -22,7 +22,7 @@ export function usePosition() {
     functionName: "getPosition",
     args: address ? [address] : undefined,
     chainId: base.id,
-    query: { enabled: !!address },
+    query: { enabled: !!address, refetchInterval: 5000 },
   });
 
   const { data: needsRebalance, refetch: refetchRebalance } = useReadContract({

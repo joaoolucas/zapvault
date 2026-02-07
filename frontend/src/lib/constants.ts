@@ -114,6 +114,18 @@ export const ROUTER_ABI = [
     outputs: [],
     stateMutability: "nonpayable",
   },
+  {
+    type: "function",
+    name: "depositWithAmount",
+    inputs: [
+      { name: "amount", type: "uint256" },
+      { name: "rangeWidth", type: "int24" },
+      { name: "rebalanceThreshold", type: "uint16" },
+      { name: "slippage", type: "uint16" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
 ] as const;
 
 export const ERC20_ABI = [

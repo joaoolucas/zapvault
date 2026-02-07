@@ -71,6 +71,16 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
         router = _router;
     }
 
+    /// @notice Rescue stuck tokens (ETH or ERC20) — owner only
+    function rescue(address token, address to, uint256 amount) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (token == address(0)) {
+            payable(to).transfer(amount);
+        } else {
+            IERC20(token).transfer(to, amount);
+        }
+    }
+
     // --- Hook permissions ---
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
@@ -277,7 +287,9 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
             );
         }
 
-        // 6. Calculate liquidity using POOL price (not oracle)
+        // 6. Re-read pool price AFTER swap (swap moves price in thin pools)
+        (sqrtPriceCurrent,,,) = poolManager.getSlot0(poolId);
+
         uint256 ethAmount = swapDelta.amount0() > 0 ? uint256(uint128(swapDelta.amount0())) : 0;
         uint256 remainingUsdc = usdcAmount - swapAmount;
 
@@ -402,36 +414,21 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
             key, pos.tickLower, pos.tickUpper, -pos.liquidity, pos.salt
         );
 
-        int128 ethAmount = removeDelta.amount0();
-
-        // Swap all ETH → USDC so user receives only USDC
-        BalanceDelta swapDelta;
-        if (ethAmount > 0) {
-            swapDelta = poolManager.swap(
-                key,
-                SwapParams({
-                    zeroForOne: true,
-                    amountSpecified: -int256(uint256(uint128(ethAmount))),
-                    sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-                }),
-                ""
-            );
+        // Send ETH directly to user (no swap — avoids massive slippage in thin pools)
+        uint256 ethOut = 0;
+        if (removeDelta.amount0() > 0) {
+            ethOut = uint128(removeDelta.amount0());
+            poolManager.take(key.currency0, user, ethOut);
         }
 
-        int128 netEth = removeDelta.amount0() + swapDelta.amount0();
-        int128 netUsdc = removeDelta.amount1() + swapDelta.amount1();
-
-        if (netEth > 0) {
-            poolManager.take(key.currency0, address(this), uint128(netEth));
+        // Send USDC directly to user
+        uint256 usdcOut = 0;
+        if (removeDelta.amount1() > 0) {
+            usdcOut = uint128(removeDelta.amount1());
+            poolManager.take(key.currency1, user, usdcOut);
         }
 
-        uint256 totalUsdc = 0;
-        if (netUsdc > 0) {
-            totalUsdc = uint128(netUsdc);
-            poolManager.take(key.currency1, user, totalUsdc);
-        }
-
-        emit Withdrawn(user, 0, totalUsdc);
+        emit Withdrawn(user, ethOut, usdcOut);
 
         delete positions[user];
         delete configs[user];

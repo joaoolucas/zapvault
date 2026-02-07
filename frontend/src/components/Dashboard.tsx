@@ -108,7 +108,7 @@ function DetailsPanel({ position }: { position: any }) {
     { k: "Deposited", v: `$${depositedUSDC.toFixed(2)}` },
     { k: "Liquidity", v: position ? BigInt(position.liquidity).toLocaleString() : "0" },
     { k: "Managed by", v: "Claude Opus 4.6" },
-    { k: "Withdraw as", v: "USDC only" },
+    { k: "Withdraw as", v: "ETH + USDC" },
   ];
 
   return (
@@ -263,6 +263,7 @@ export function Dashboard({ onDeposit, hasPosition }: { onDeposit: () => void; h
         abi: HOOK_ABI,
         functionName: "withdraw",
         chain: base,
+        gas: 800_000n,
       });
       await publicClient.waitForTransactionReceipt({ hash });
       refetch();
@@ -304,7 +305,7 @@ export function Dashboard({ onDeposit, hasPosition }: { onDeposit: () => void; h
             onClick={handleWithdraw}
             className="px-7 py-3.5 text-sm font-semibold bg-card text-foreground border border-border rounded-xl hover:bg-surface transition-colors cursor-pointer"
           >
-            Withdraw as USDC
+            Withdraw
           </button>
         </div>
       </div>

@@ -12,7 +12,7 @@ export function useDeposit() {
   const publicClient = usePublicClient({ chainId: base.id });
   const { data: walletClient } = useWalletClient({ chainId: base.id });
   const [step, setStep] = useState<
-    "idle" | "transferring" | "depositing" | "confirming" | "done" | "error"
+    "idle" | "approving" | "depositing" | "confirming" | "done" | "error"
   >("idle");
 
   const deposit = useCallback(
@@ -22,30 +22,31 @@ export function useDeposit() {
       const amount = parseUnits(usdcAmount, 6);
 
       try {
-        // Step 1: Transfer USDC to router
-        setStep("transferring");
-        const transferHash = await walletClient.writeContract({
+        // Step 1: Approve router to spend USDC
+        setStep("approving");
+        const approveHash = await walletClient.writeContract({
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
-          functionName: "transfer",
+          functionName: "approve",
           args: [ADDRESSES.ROUTER, amount],
           chain: base,
         });
-        await publicClient.waitForTransactionReceipt({ hash: transferHash });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
-        // Step 2: Call router.deposit (single tx, no second signature for transfer)
+        // Step 2: Call router.depositWithAmount (atomic: transferFrom + deposit in one tx)
         setStep("depositing");
         const depositHash = await walletClient.writeContract({
           address: ADDRESSES.ROUTER,
           abi: ROUTER_ABI,
-          functionName: "deposit",
+          functionName: "depositWithAmount",
           args: [
-            address,
+            amount,
             config.rangeWidth,
             config.rebalanceThreshold,
             config.slippage,
           ],
           chain: base,
+          gas: 800_000n,
         });
 
         setStep("confirming");
@@ -63,6 +64,6 @@ export function useDeposit() {
   return {
     deposit,
     step,
-    isLoading: step === "transferring" || step === "depositing" || step === "confirming",
+    isLoading: step === "approving" || step === "depositing" || step === "confirming",
   };
 }

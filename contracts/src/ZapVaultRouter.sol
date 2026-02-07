@@ -6,24 +6,57 @@ import {IZapVault} from "./interfaces/IZapVault.sol";
 import {ZapVaultHook} from "./ZapVaultHook.sol";
 
 /// @title ZapVaultRouter
-/// @notice Entry point for LI.FI Composer deposits. LI.FI executor transfers USDC here then calls deposit().
+/// @notice Entry point for deposits. Supports both approve+deposit (frontend) and transfer+deposit (LI.FI).
 contract ZapVaultRouter {
     ZapVaultHook public immutable hook;
     IERC20 public immutable usdc;
+    address public immutable owner;
 
     error ZeroAmount();
+    error OnlyOwner();
 
     constructor(address _hook, address _usdc) {
         hook = ZapVaultHook(payable(_hook));
         usdc = IERC20(_usdc);
+        owner = msg.sender;
     }
 
-    /// @notice Called by LI.FI executor after bridging USDC to this contract.
+    /// @notice Rescue stuck tokens — owner only
+    function rescue(address token, address to, uint256 amount) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (token == address(0)) {
+            payable(to).transfer(amount);
+        } else {
+            IERC20(token).transfer(to, amount);
+        }
+    }
+
+    /// @notice Deposit with explicit amount (approve pattern — frontend uses this)
+    /// @dev User must approve this router for USDC first. Atomic: transferFrom + deposit in one tx.
+    function depositWithAmount(
+        uint256 amount,
+        int24 rangeWidth,
+        uint16 rebalanceThreshold,
+        uint16 slippage
+    ) external {
+        if (amount == 0) revert ZeroAmount();
+
+        usdc.transferFrom(msg.sender, address(this), amount);
+        usdc.approve(address(hook), amount);
+
+        hook.deposit(
+            msg.sender,
+            amount,
+            IZapVault.UserConfig({
+                rangeWidth: rangeWidth,
+                rebalanceThreshold: rebalanceThreshold,
+                slippage: slippage
+            })
+        );
+    }
+
+    /// @notice Deposit using balance already in router (LI.FI Composer pattern)
     /// @dev USDC must already be transferred to this contract before calling.
-    /// @param user The depositor's address (passed through from source chain)
-    /// @param rangeWidth Tick range width for LP position
-    /// @param rebalanceThreshold Rebalance threshold in bps
-    /// @param slippage Max slippage in bps
     function deposit(
         address user,
         int24 rangeWidth,

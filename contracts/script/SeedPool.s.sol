@@ -35,19 +35,19 @@ contract SeedPool is Script {
         PoolSeeder seeder = new PoolSeeder(IPoolManager(POOL_MANAGER));
         console.log("Seeder deployed to:", address(seeder));
 
-        // Fund seeder with ETH and USDC
-        uint256 ethToSeed = 0.001 ether;
-        uint256 usdcToSeed = 3e6; // 3 USDC
+        // Fund seeder with ETH and USDC (extra to cover rounding)
+        uint256 ethToSeed = 0.01 ether;
+        uint256 usdcToSeed = 25e6; // 25 USDC
+
 
         payable(address(seeder)).transfer(ethToSeed);
         IERC20(USDC).transfer(address(seeder), usdcToSeed);
 
-        // Full range liquidity with small amount
+        // Full range liquidity — ~30 USDC + ~0.01 ETH worth
         int24 tickLower = TickMath.minUsableTick(TICK_SPACING);
         int24 tickUpper = TickMath.maxUsableTick(TICK_SPACING);
 
-        // Small but meaningful seed — ~1 USDC + ~0.0005 ETH worth for full-range
-        int256 seedLiquidity = 5e10;
+        int256 seedLiquidity = 4e11;
         seeder.seed{value: 0}(poolKey, tickLower, tickUpper, seedLiquidity);
 
         console.log("Pool seeded!");
