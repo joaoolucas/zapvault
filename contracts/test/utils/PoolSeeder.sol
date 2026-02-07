@@ -10,19 +10,65 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// @notice Helper contract to seed a pool with liquidity in tests
+/// @notice Helper contract to seed a pool with liquidity and recover it later
 contract PoolSeeder is IUnlockCallback {
     using CurrencyLibrary for Currency;
 
     IPoolManager public immutable poolManager;
     address public immutable owner;
 
+    // Track the seed position so it can be removed later
+    bool public seeded;
+    PoolKey public seedKey;
+    int24 public seedTickLower;
+    int24 public seedTickUpper;
+    int256 public seedLiquidity;
+
+    enum CallbackAction { SEED, REMOVE }
+
+    struct CallbackParams {
+        CallbackAction action;
+        PoolKey key;
+        int24 tickLower;
+        int24 tickUpper;
+        int256 liquidityDelta;
+    }
+
     constructor(IPoolManager _poolManager) {
         poolManager = _poolManager;
         owner = tx.origin;
     }
 
-    /// @notice Withdraw leftover ETH and any ERC20 tokens after seeding
+    /// @notice Seed the pool with liquidity
+    function seed(PoolKey memory key, int24 tickLower, int24 tickUpper, int256 liquidityDelta) external payable {
+        require(msg.sender == owner, "OnlyOwner");
+
+        // Store position info for later removal
+        seedKey = key;
+        seedTickLower = tickLower;
+        seedTickUpper = tickUpper;
+        seedLiquidity = liquidityDelta;
+        seeded = true;
+
+        poolManager.unlock(abi.encode(CallbackParams(
+            CallbackAction.SEED, key, tickLower, tickUpper, liquidityDelta
+        )));
+    }
+
+    /// @notice Remove seed liquidity and recover tokens
+    function removeSeed() external {
+        require(msg.sender == owner, "OnlyOwner");
+        require(seeded, "NotSeeded");
+
+        poolManager.unlock(abi.encode(CallbackParams(
+            CallbackAction.REMOVE, seedKey, seedTickLower, seedTickUpper, -seedLiquidity
+        )));
+
+        seeded = false;
+        seedLiquidity = 0;
+    }
+
+    /// @notice Withdraw any tokens held by the seeder (leftover or recovered)
     function withdraw(address token) external {
         require(msg.sender == owner, "OnlyOwner");
         if (token == address(0)) {
@@ -33,23 +79,11 @@ contract PoolSeeder is IUnlockCallback {
         }
     }
 
-    struct SeedParams {
-        PoolKey key;
-        int24 tickLower;
-        int24 tickUpper;
-        int256 liquidityDelta;
-    }
-
-    function seed(PoolKey memory key, int24 tickLower, int24 tickUpper, int256 liquidityDelta) external payable {
-        poolManager.unlock(abi.encode(SeedParams(key, tickLower, tickUpper, liquidityDelta)));
-    }
-
     function unlockCallback(bytes calldata data) external override returns (bytes memory) {
         require(msg.sender == address(poolManager), "Not PoolManager");
 
-        SeedParams memory params = abi.decode(data, (SeedParams));
+        CallbackParams memory params = abi.decode(data, (CallbackParams));
 
-        // First: add liquidity to learn exact deltas
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
             params.key,
             ModifyLiquidityParams({
@@ -61,19 +95,31 @@ contract PoolSeeder is IUnlockCallback {
             ""
         );
 
-        // Settle currency1 (USDC) — transfer exact amount needed
-        int128 amount1 = delta.amount1();
-        if (amount1 < 0) {
-            uint256 needed = uint128(-amount1);
-            poolManager.sync(params.key.currency1);
-            IERC20(Currency.unwrap(params.key.currency1)).transfer(address(poolManager), needed);
-            poolManager.settle();
-        }
+        if (params.action == CallbackAction.SEED) {
+            // Settle: pay tokens INTO the pool
+            int128 amount1 = delta.amount1();
+            if (amount1 < 0) {
+                uint256 needed = uint128(-amount1);
+                poolManager.sync(params.key.currency1);
+                IERC20(Currency.unwrap(params.key.currency1)).transfer(address(poolManager), needed);
+                poolManager.settle();
+            }
 
-        // Settle currency0 (ETH) — send exact ETH needed
-        int128 amount0 = delta.amount0();
-        if (amount0 < 0) {
-            poolManager.settle{value: uint128(-amount0)}();
+            int128 amount0 = delta.amount0();
+            if (amount0 < 0) {
+                poolManager.settle{value: uint128(-amount0)}();
+            }
+        } else {
+            // Remove: take tokens OUT of the pool
+            int128 amount0 = delta.amount0();
+            if (amount0 > 0) {
+                poolManager.take(params.key.currency0, address(this), uint128(amount0));
+            }
+
+            int128 amount1 = delta.amount1();
+            if (amount1 > 0) {
+                poolManager.take(params.key.currency1, address(this), uint128(amount1));
+            }
         }
 
         return "";

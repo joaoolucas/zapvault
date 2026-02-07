@@ -40,6 +40,10 @@ export default function Home() {
             setShowDeposit(false);
             refetch();
           }}
+          onDeposited={() => {
+            setShowDeposit(false);
+            refetch();
+          }}
         />
       )}
     </div>

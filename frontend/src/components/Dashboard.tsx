@@ -1,11 +1,11 @@
 "use client";
 
-import { useAccount, useWriteContract, useReadContract } from "wagmi";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { base } from "wagmi/chains";
 import { formatUnits } from "viem";
 import { usePosition } from "@/hooks/usePositions";
 import { useENSConfig } from "@/hooks/useENSConfig";
-import { HOOK_ABI, ADDRESSES, ERC20_ABI } from "@/lib/constants";
+import { HOOK_ABI, ADDRESSES } from "@/lib/constants";
 import { usePoolAPR } from "@/hooks/usePoolAPR";
 
 function tickToPrice(tick: number): number {
@@ -243,8 +243,9 @@ function EmptyState({ onDeposit, aprFormatted }: { onDeposit: () => void; aprFor
 
 export function Dashboard({ onDeposit, hasPosition }: { onDeposit: () => void; hasPosition: boolean }) {
   const { address } = useAccount();
-  const { position, needsRebalance, config } = usePosition();
-  const { writeContract } = useWriteContract();
+  const { position, needsRebalance, config, refetch } = usePosition();
+  const publicClient = usePublicClient({ chainId: base.id });
+  const { data: walletClient } = useWalletClient({ chainId: base.id });
   const { formatted: aprFormatted } = usePoolAPR();
 
   if (!hasPosition || !position) {
@@ -254,14 +255,20 @@ export function Dashboard({ onDeposit, hasPosition }: { onDeposit: () => void; h
   const depositedUSDC = Number(formatUnits(position.depositedUSDC, 6));
   const inRange = !needsRebalance;
 
-  const handleWithdraw = () => {
-    writeContract({
-      address: ADDRESSES.HOOK,
-      abi: HOOK_ABI,
-      functionName: "withdraw",
-      chainId: base.id,
-    });
-    setTimeout(() => window.location.reload(), 5000);
+  const handleWithdraw = async () => {
+    if (!walletClient || !publicClient) return;
+    try {
+      const hash = await walletClient.writeContract({
+        address: ADDRESSES.HOOK,
+        abi: HOOK_ABI,
+        functionName: "withdraw",
+        chain: base,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      refetch();
+    } catch (e) {
+      console.error("Withdraw failed:", e);
+    }
   };
 
   return (

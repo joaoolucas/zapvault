@@ -15,6 +15,12 @@ import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/Pool
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IZapVault} from "./interfaces/IZapVault.sol";
 
+interface AggregatorV3Interface {
+    function latestRoundData() external view returns (
+        uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
+    );
+}
+
 contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -27,6 +33,7 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
     bool public poolKeySet;
     address public router;
     address public owner;
+    AggregatorV3Interface public immutable priceFeed;
 
     // Track user salt counter for unique positions
     uint256 private _saltCounter;
@@ -51,10 +58,12 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
     error PositionAlreadyExists();
     error NoPosition();
     error InvalidConfig();
+    error StaleOracle();
 
-    constructor(IPoolManager _poolManager, address _router) BaseHook(_poolManager) {
+    constructor(IPoolManager _poolManager, address _router, address _priceFeed) BaseHook(_poolManager) {
         router = _router;
-        owner = tx.origin; // tx.origin so CREATE2 factory deploys still assign the EOA as owner
+        owner = tx.origin;
+        priceFeed = AggregatorV3Interface(_priceFeed);
     }
 
     function setRouter(address _router) external {
@@ -101,9 +110,6 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
         BalanceDelta,
         bytes calldata
     ) internal override returns (bytes4, int128) {
-        // Check all tracked positions and emit NeedsRebalance if out of range
-        // Note: In production, we'd iterate over active users or use a more efficient structure.
-        // For hackathon, this is called per-swap and we accept the gas cost is bounded by # of users.
         return (this.afterSwap.selector, 0);
     }
 
@@ -117,7 +123,6 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
 
         configs[user] = config;
 
-        // Transfer USDC from router to this contract
         Currency usdc = poolKey.currency1;
         IERC20(Currency.unwrap(usdc)).transferFrom(msg.sender, address(this), usdcAmount);
 
@@ -159,6 +164,63 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
         return "";
     }
 
+    // --- Oracle ---
+
+    /// @notice Convert Chainlink ETH/USD price to a Uniswap tick
+    /// @dev Chainlink returns price with 8 decimals. Uniswap tick: price = 1.0001^tick * 10^12
+    ///      tick = ln(price / 10^12) / ln(1.0001)
+    ///      We use an iterative approach to avoid floating point
+    function _getOracleTick() internal view returns (int24) {
+        (, int256 answer,, uint256 updatedAt,) = priceFeed.latestRoundData();
+        if (answer <= 0 || block.timestamp - updatedAt > 3600) revert StaleOracle();
+
+        // price in 8 decimals → e.g., 270000000000 = $2700
+        uint256 price = uint256(answer);
+
+        // We need tick such that: 1.0001^tick = price / 10^12 * 10^(-8) * 10^8
+        // Simplify: 1.0001^tick = price * 10^(-8) / 10^12 = price / 10^20
+        // tick = log(price / 10^20) / log(1.0001)
+        //
+        // Use binary search over ticks to find closest match
+        // TickMath.getSqrtPriceAtTick gives us sqrtPriceX96 = sqrt(1.0001^tick) * 2^96
+        // sqrtPriceX96^2 / 2^192 = 1.0001^tick = rawPrice
+        // We want rawPrice * 10^12 = humanPrice = price * 10^(-8)
+        // rawPrice = price / 10^20
+        //
+        // targetSqrtPriceX96 = sqrt(price / 10^20) * 2^96
+        // = sqrt(price) * 2^96 / sqrt(10^20)
+        // = sqrt(price) * 2^96 / 10^10
+
+        // Compute target sqrtPriceX96
+        uint256 sqrtPrice = _sqrt(price); // sqrt of price (8 decimals)
+        // sqrtPrice is sqrt of e.g. 270000000000 ≈ 519615
+        // target = sqrtPrice * 2^96 / 10^10
+        uint256 targetSqrtPriceX96 = (sqrtPrice * (1 << 96)) / 1e10;
+
+        // Clamp to valid range
+        if (targetSqrtPriceX96 < uint256(uint160(TickMath.MIN_SQRT_PRICE))) {
+            return TickMath.MIN_TICK;
+        }
+        if (targetSqrtPriceX96 > uint256(uint160(TickMath.MAX_SQRT_PRICE))) {
+            return TickMath.MAX_TICK;
+        }
+
+        // Use TickMath to get the tick from sqrtPrice
+        return TickMath.getTickAtSqrtPrice(uint160(targetSqrtPriceX96));
+    }
+
+    /// @notice Integer square root (Babylonian method)
+    function _sqrt(uint256 x) internal pure returns (uint256) {
+        if (x == 0) return 0;
+        uint256 z = (x + 1) / 2;
+        uint256 y = x;
+        while (z < y) {
+            y = z;
+            z = (x / z + z) / 2;
+        }
+        return y;
+    }
+
     // --- Internal execution ---
 
     function _executeDeposit(DepositParams memory params) internal {
@@ -167,38 +229,56 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
 
         Currency usdc = key.currency1;
         uint256 usdcAmount = params.usdcAmount;
-        uint256 swapAmount = usdcAmount / 2;
 
-        // Transfer ALL USDC to PoolManager and settle to create credit
-        // delta[USDC] += usdcAmount
+        // 1. Calculate LP range from ORACLE tick
+        int24 oracleTick = _getOracleTick();
+        int24 tickSpacing = key.tickSpacing;
+        int24 halfRange = params.config.rangeWidth / 2;
+        int24 tickLower = _alignTick(oracleTick - halfRange, tickSpacing);
+        int24 tickUpper = _alignTick(oracleTick + halfRange, tickSpacing);
+        tickLower = tickLower < TickMath.MIN_TICK ? TickMath.minUsableTick(tickSpacing) : tickLower;
+        tickUpper = tickUpper > TickMath.MAX_TICK ? TickMath.maxUsableTick(tickSpacing) : tickUpper;
+
+        // 2. Read current POOL price to determine swap ratio
+        (uint160 sqrtPriceCurrent, int24 currentTick,,) = poolManager.getSlot0(poolId);
+
+        // 3. Calculate swap amount based on position vs pool price
+        uint256 swapAmount;
+        if (currentTick >= tickUpper) {
+            // Position is entirely below pool tick → need 100% USDC, 0% ETH
+            swapAmount = 0;
+        } else if (currentTick <= tickLower) {
+            // Position is entirely above pool tick → need 100% ETH, 0% USDC
+            swapAmount = usdcAmount;
+        } else {
+            // Position straddles pool tick → need both tokens
+            // Fraction above current tick needs ETH
+            uint256 totalRange = uint256(int256(tickUpper - tickLower));
+            uint256 ethRange = uint256(int256(tickUpper - currentTick));
+            swapAmount = (usdcAmount * ethRange) / totalRange;
+        }
+
+        // 4. Transfer ALL USDC to PoolManager and settle to create credit
         poolManager.sync(usdc);
         IERC20(Currency.unwrap(usdc)).transfer(address(poolManager), usdcAmount);
         poolManager.settle();
 
-        // Swap ~50% USDC → ETH FIRST, then compute range on post-swap price
-        // delta[ETH] += swapDelta.amount0() (positive = ETH received)
-        // delta[USDC] += swapDelta.amount1() (negative = USDC consumed)
-        BalanceDelta swapDelta = poolManager.swap(
-            key,
-            SwapParams({
-                zeroForOne: false,
-                amountSpecified: -int256(swapAmount),
-                sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
-            }),
-            ""
-        );
+        // 5. Swap USDC → ETH (only what's needed)
+        BalanceDelta swapDelta;
+        if (swapAmount > 0) {
+            swapDelta = poolManager.swap(
+                key,
+                SwapParams({
+                    zeroForOne: false,
+                    amountSpecified: -int256(swapAmount),
+                    sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+                }),
+                ""
+            );
+        }
 
-        // Calculate tick range centered on POST-SWAP price
-        (uint160 sqrtPriceCurrent, int24 currentTick,,) = poolManager.getSlot0(poolId);
-        int24 tickSpacing = key.tickSpacing;
-        int24 halfRange = params.config.rangeWidth / 2;
-        int24 tickLower = _alignTick(currentTick - halfRange, tickSpacing);
-        int24 tickUpper = _alignTick(currentTick + halfRange, tickSpacing);
-        tickLower = tickLower < TickMath.MIN_TICK ? TickMath.minUsableTick(tickSpacing) : tickLower;
-        tickUpper = tickUpper > TickMath.MAX_TICK ? TickMath.maxUsableTick(tickSpacing) : tickUpper;
-
-        // Calculate liquidity from swap proceeds + remaining USDC
-        uint256 ethAmount = uint256(uint128(swapDelta.amount0())); // positive
+        // 6. Calculate liquidity using POOL price (not oracle)
+        uint256 ethAmount = swapDelta.amount0() > 0 ? uint256(uint128(swapDelta.amount0())) : 0;
         uint256 remainingUsdc = usdcAmount - swapAmount;
 
         bytes32 salt = bytes32(_saltCounter++);
@@ -209,13 +289,13 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
             sqrtPriceCurrent, sqrtPriceLower, sqrtPriceUpper, ethAmount, remainingUsdc
         ));
 
-        // Add concentrated liquidity
-        // delta[ETH] += lpDelta.amount0() (negative = ETH consumed)
-        // delta[USDC] += lpDelta.amount1() (negative = USDC consumed)
-        BalanceDelta lpDelta = _modifyLiquidity(key, tickLower, tickUpper, liquidityDelta, salt);
+        // 7. Add concentrated liquidity
+        BalanceDelta lpDelta;
+        if (liquidityDelta > 0) {
+            lpDelta = _modifyLiquidity(key, tickLower, tickUpper, liquidityDelta, salt);
+        }
 
-        // Settle net deltas — all operations accumulated in the PoolManager's accounting
-        // Net ETH = swapDelta.amount0() + lpDelta.amount0()
+        // 8. Settle net deltas
         int128 netEth = swapDelta.amount0() + lpDelta.amount0();
         if (netEth > 0) {
             poolManager.take(key.currency0, address(this), uint128(netEth));
@@ -223,10 +303,14 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
             poolManager.settle{value: uint128(-netEth)}();
         }
 
-        // Net USDC = settled(usdcAmount) + swapDelta.amount1() + lpDelta.amount1()
         int128 netUsdc = int128(int256(usdcAmount)) + swapDelta.amount1() + lpDelta.amount1();
         if (netUsdc > 0) {
             poolManager.take(usdc, address(this), uint128(netUsdc));
+        } else if (netUsdc < 0) {
+            // Safety: if we owe more USDC than deposited, settle from hook balance
+            poolManager.sync(usdc);
+            IERC20(Currency.unwrap(usdc)).transfer(address(poolManager), uint128(-netUsdc));
+            poolManager.settle();
         }
 
         // Store position
@@ -248,29 +332,27 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
         UserPosition memory pos = positions[user];
         UserConfig memory config = configs[user];
 
-        // Remove old liquidity — positive deltas = tokens returned to us
+        // Remove old liquidity
         BalanceDelta removeDelta = _modifyLiquidity(
             key, pos.tickLower, pos.tickUpper, -pos.liquidity, pos.salt
         );
 
-        // Get new current tick
-        (, int24 currentTick,,) = poolManager.getSlot0(poolId);
-
-        // Calculate new centered range
+        // Use ORACLE price for new range centering
+        int24 oracleTick = _getOracleTick();
         int24 tickSpacing = key.tickSpacing;
         int24 halfRange = config.rangeWidth / 2;
-        int24 newTickLower = _alignTick(currentTick - halfRange, tickSpacing);
-        int24 newTickUpper = _alignTick(currentTick + halfRange, tickSpacing);
+        int24 newTickLower = _alignTick(oracleTick - halfRange, tickSpacing);
+        int24 newTickUpper = _alignTick(oracleTick + halfRange, tickSpacing);
         newTickLower = newTickLower < TickMath.MIN_TICK ? TickMath.minUsableTick(tickSpacing) : newTickLower;
         newTickUpper = newTickUpper > TickMath.MAX_TICK ? TickMath.maxUsableTick(tickSpacing) : newTickUpper;
 
-        // Calculate new liquidity from removal proceeds (delta values, not balances)
-        uint256 ethBal = uint256(uint128(removeDelta.amount0())); // positive
-        uint256 usdcBal = uint256(uint128(removeDelta.amount1())); // positive
+        uint256 ethBal = removeDelta.amount0() > 0 ? uint256(uint128(removeDelta.amount0())) : 0;
+        uint256 usdcBal = removeDelta.amount1() > 0 ? uint256(uint128(removeDelta.amount1())) : 0;
 
+        // Use POOL price for liquidity calculation (not oracle)
+        (uint160 sqrtPriceCurrent,,,) = poolManager.getSlot0(poolId);
         uint160 sqrtPriceLower = TickMath.getSqrtPriceAtTick(newTickLower);
         uint160 sqrtPriceUpper = TickMath.getSqrtPriceAtTick(newTickUpper);
-        (uint160 sqrtPriceCurrent,,,) = poolManager.getSlot0(poolId);
 
         int256 newLiquidity = int256(_calculateLiquidity(
             sqrtPriceCurrent, sqrtPriceLower, sqrtPriceUpper, ethBal, usdcBal
@@ -278,13 +360,11 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
 
         bytes32 newSalt = bytes32(_saltCounter++);
 
-        // Add new liquidity if non-zero
         BalanceDelta lpDelta;
         if (newLiquidity > 0) {
             lpDelta = _modifyLiquidity(key, newTickLower, newTickUpper, newLiquidity, newSalt);
         }
 
-        // Settle net deltas: removal (positive) + addition (negative)
         int128 netEth = removeDelta.amount0() + lpDelta.amount0();
         int128 netUsdc = removeDelta.amount1() + lpDelta.amount1();
 
@@ -302,7 +382,6 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
             poolManager.settle();
         }
 
-        // Update position (liquidity=0 means position was too small to re-add)
         positions[user] = UserPosition({
             tickLower: newTickLower,
             tickUpper: newTickUpper,
@@ -319,7 +398,6 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
         PoolKey memory key = poolKey;
         UserPosition memory pos = positions[user];
 
-        // Remove all liquidity — positive deltas
         BalanceDelta removeDelta = _modifyLiquidity(
             key, pos.tickLower, pos.tickUpper, -pos.liquidity, pos.salt
         );
@@ -340,16 +418,13 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
             );
         }
 
-        // Net deltas: removal + swap should leave ~0 ETH and all USDC
         int128 netEth = removeDelta.amount0() + swapDelta.amount0();
         int128 netUsdc = removeDelta.amount1() + swapDelta.amount1();
 
-        // Take any dust ETH to hook (shouldn't happen normally)
         if (netEth > 0) {
             poolManager.take(key.currency0, address(this), uint128(netEth));
         }
 
-        // Send all USDC to user
         uint256 totalUsdc = 0;
         if (netUsdc > 0) {
             totalUsdc = uint128(netUsdc);
@@ -358,7 +433,6 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
 
         emit Withdrawn(user, 0, totalUsdc);
 
-        // Clear position
         delete positions[user];
         delete configs[user];
     }
@@ -386,7 +460,6 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
     }
 
     function _alignTick(int24 tick, int24 tickSpacing) internal pure returns (int24) {
-        // Round down to nearest tick spacing
         int24 aligned = (tick / tickSpacing) * tickSpacing;
         if (tick < 0 && tick % tickSpacing != 0) {
             aligned -= tickSpacing;
@@ -401,20 +474,11 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
         uint256 amount0,
         uint256 amount1
     ) internal pure returns (uint256) {
-        // Simplified liquidity calculation
-        // L = min(amount0 * (sqrtPa * sqrtPb) / (sqrtPb - sqrtPa), amount1 / (sqrtPb - sqrtPa))
-        // where sqrtPa = max(sqrtPriceCurrent, sqrtPriceLower), sqrtPb = sqrtPriceUpper
-
         if (sqrtPriceCurrent <= sqrtPriceLower) {
-            // All amount0 (ETH)
-            // L = amount0 * sqrtPriceLower * sqrtPriceUpper / (sqrtPriceUpper - sqrtPriceLower)
             return _mulDiv(amount0, uint256(sqrtPriceLower) * uint256(sqrtPriceUpper), (uint256(sqrtPriceUpper) - uint256(sqrtPriceLower)) * (1 << 96));
         } else if (sqrtPriceCurrent >= sqrtPriceUpper) {
-            // All amount1 (USDC)
-            // L = amount1 * Q96 / (sqrtPriceUpper - sqrtPriceLower)
             return _mulDiv(amount1, 1 << 96, uint256(sqrtPriceUpper) - uint256(sqrtPriceLower));
         } else {
-            // Both tokens needed
             uint256 liquidity0 = _mulDiv(
                 amount0,
                 uint256(sqrtPriceCurrent) * uint256(sqrtPriceUpper),
@@ -433,29 +497,27 @@ contract ZapVaultHook is BaseHook, IUnlockCallback, IZapVault {
         return (a * b) / c;
     }
 
-    /// @notice Check if a user's position needs rebalancing based on current tick
+    /// @notice Check if a user's position needs rebalancing (uses oracle price)
     function needsRebalance(address user) external view returns (bool) {
         UserPosition memory pos = positions[user];
         if (pos.liquidity == 0) return false;
 
         UserConfig memory config = configs[user];
-        PoolId poolId = poolKey.toId();
-        (, int24 currentTick,,) = poolManager.getSlot0(poolId);
 
-        // Check if current tick is outside position range by rebalance threshold
+        // Use oracle tick instead of pool tick for checking range
+        int24 oracleTick = _getOracleTick();
+
         int24 positionCenter = (pos.tickLower + pos.tickUpper) / 2;
-        int24 deviation = currentTick > positionCenter ? currentTick - positionCenter : positionCenter - currentTick;
+        int24 deviation = oracleTick > positionCenter ? oracleTick - positionCenter : positionCenter - oracleTick;
         int24 threshold = int24(uint24(config.rebalanceThreshold)) * (pos.tickUpper - pos.tickLower) / 10000;
 
         return deviation > threshold;
     }
 
-    /// @notice Get a user's current position info
     function getPosition(address user) external view returns (UserPosition memory) {
         return positions[user];
     }
 
-    /// @notice Get a user's config
     function getConfig(address user) external view returns (UserConfig memory) {
         return configs[user];
     }

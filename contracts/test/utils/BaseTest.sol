@@ -23,6 +23,8 @@ abstract contract BaseTest is Test {
     IPoolManager constant POOL_MANAGER = IPoolManager(0x498581fF718922c3f8e6A244956aF099B2652b2b);
     address constant USDC_ADDRESS = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     IERC20 constant USDC = IERC20(USDC_ADDRESS);
+    // Chainlink ETH/USD on Base
+    address constant PRICE_FEED = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
 
     // Pool parameters
     uint24 constant FEE = 3000; // 0.3%
@@ -49,10 +51,10 @@ abstract contract BaseTest is Test {
             address(this),
             flags,
             type(ZapVaultHook).creationCode,
-            abi.encode(address(POOL_MANAGER), tempRouter)
+            abi.encode(address(POOL_MANAGER), tempRouter, PRICE_FEED)
         );
 
-        hook = new ZapVaultHook{salt: salt}(POOL_MANAGER, tempRouter);
+        hook = new ZapVaultHook{salt: salt}(POOL_MANAGER, tempRouter, PRICE_FEED);
         require(address(hook) == hookAddress, "Hook address mismatch");
 
         // Deploy router
@@ -103,6 +105,7 @@ abstract contract BaseTest is Test {
 
         // Add seed liquidity — 1e15 requires ~18 ETH for full-range at $3000 ETH
         int256 seedLiquidity = 1e15;
+        vm.prank(tx.origin);
         seeder.seed{value: 50 ether}(poolKey, tickLower, tickUpper, seedLiquidity);
     }
 

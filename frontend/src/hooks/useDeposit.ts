@@ -1,11 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import {
-  useAccount,
-  useWriteContract,
-  useWaitForTransactionReceipt,
-} from "wagmi";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { base } from "wagmi/chains";
 import { parseUnits } from "viem";
 import { ADDRESSES, ERC20_ABI, ROUTER_ABI } from "@/lib/constants";
@@ -13,59 +9,33 @@ import type { VaultConfig } from "./useENSConfig";
 
 export function useDeposit() {
   const { address } = useAccount();
+  const publicClient = usePublicClient({ chainId: base.id });
+  const { data: walletClient } = useWalletClient({ chainId: base.id });
   const [step, setStep] = useState<
-    "idle" | "approving" | "depositing" | "done" | "error"
+    "idle" | "transferring" | "depositing" | "confirming" | "done" | "error"
   >("idle");
-
-  const {
-    writeContract: writeApprove,
-    data: approveTx,
-    isPending: isApproving,
-  } = useWriteContract();
-  const {
-    writeContract: writeTransfer,
-    data: transferTx,
-    isPending: isTransferring,
-  } = useWriteContract();
-  const {
-    writeContract: writeDeposit,
-    data: depositTx,
-    isPending: isDepositing,
-  } = useWriteContract();
-
-  const { isLoading: isWaitingApprove } = useWaitForTransactionReceipt({
-    hash: approveTx,
-  });
-  const { isLoading: isWaitingTransfer } = useWaitForTransactionReceipt({
-    hash: transferTx,
-  });
-  const { isLoading: isWaitingDeposit } = useWaitForTransactionReceipt({
-    hash: depositTx,
-  });
 
   const deposit = useCallback(
     async (usdcAmount: string, config: VaultConfig) => {
-      if (!address) return;
+      if (!address || !walletClient || !publicClient) return;
 
       const amount = parseUnits(usdcAmount, 6);
 
       try {
-        setStep("approving");
-
         // Step 1: Transfer USDC to router
-        // First approve the router to spend USDC (for user to transfer)
-        writeTransfer({
+        setStep("transferring");
+        const transferHash = await walletClient.writeContract({
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
           functionName: "transfer",
           args: [ADDRESSES.ROUTER, amount],
-          chainId: base.id,
+          chain: base,
         });
+        await publicClient.waitForTransactionReceipt({ hash: transferHash });
 
+        // Step 2: Call router.deposit (single tx, no second signature for transfer)
         setStep("depositing");
-
-        // Step 2: Call router.deposit
-        writeDeposit({
+        const depositHash = await walletClient.writeContract({
           address: ADDRESSES.ROUTER,
           abi: ROUTER_ABI,
           functionName: "deposit",
@@ -75,26 +45,24 @@ export function useDeposit() {
             config.rebalanceThreshold,
             config.slippage,
           ],
-          chainId: base.id,
+          chain: base,
         });
 
+        setStep("confirming");
+        await publicClient.waitForTransactionReceipt({ hash: depositHash });
+
         setStep("done");
-      } catch {
+      } catch (e) {
+        console.error("Deposit failed:", e);
         setStep("error");
       }
     },
-    [address, writeTransfer, writeDeposit]
+    [address, walletClient, publicClient]
   );
 
   return {
     deposit,
     step,
-    isLoading:
-      isApproving ||
-      isTransferring ||
-      isDepositing ||
-      isWaitingApprove ||
-      isWaitingTransfer ||
-      isWaitingDeposit,
+    isLoading: step === "transferring" || step === "depositing" || step === "confirming",
   };
 }

@@ -11,7 +11,7 @@ import { ADDRESSES, ERC20_ABI } from "@/lib/constants";
 const CHAINS = ["Ethereum", "Arbitrum", "Polygon", "Optimism", "Base"];
 const PRESETS = ["100", "500", "1000", "5000"];
 
-export function DepositModal({ onClose }: { onClose: () => void }) {
+export function DepositModal({ onClose, onDeposited }: { onClose: () => void; onDeposited?: () => void }) {
   const [chain, setChain] = useState(4);
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
@@ -35,7 +35,7 @@ export function DepositModal({ onClose }: { onClose: () => void }) {
   const handleDeposit = async () => {
     if (!amount || amountNum <= 0 || exceedsBalance) return;
     await deposit(amount, config);
-    setTimeout(() => window.location.reload(), 5000);
+    onDeposited?.();
   };
 
   return (
@@ -159,11 +159,13 @@ export function DepositModal({ onClose }: { onClose: () => void }) {
           className="w-full py-4 text-[15px] font-bold bg-foreground text-background rounded-xl hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading
-            ? step === "approving"
+            ? step === "transferring"
               ? "Transferring USDC..."
               : step === "depositing"
-                ? "Depositing..."
-                : "Processing..."
+                ? "Depositing into vault..."
+                : step === "confirming"
+                  ? "Confirming..."
+                  : "Processing..."
             : step === "done"
               ? "Deposited!"
               : isBase
