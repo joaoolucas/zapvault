@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, usePublicClient, useWalletClient, useEnsName, useEnsAvatar } from "wagmi";
+import { useAccount, usePublicClient, useEnsName, useEnsAvatar } from "wagmi";
 import { mainnet, base } from "wagmi/chains";
 import { formatUnits, parseAbiItem } from "viem";
 import { normalize } from "viem/ens";
 import { usePosition } from "@/hooks/usePositions";
 import { useENSConfig } from "@/hooks/useENSConfig";
-import { VAULT_ABI, ADDRESSES } from "@/lib/constants";
+import { ADDRESSES } from "@/lib/constants";
 import { usePoolAPR } from "@/hooks/usePoolAPR";
 
 function tickToPrice(tick: number): number {
@@ -228,7 +228,7 @@ function DetailsPanel({ position }: { position: any }) {
     { k: "Deposited", v: `$${depositedUSDC.toFixed(2)}` },
     { k: "Range", v: position ? `${tickToPrice(position.tickLower).toFixed(0)} — ${tickToPrice(position.tickUpper).toFixed(0)}` : "—" },
     { k: "Managed by", v: "Claude Opus 4.6" },
-    { k: "Withdraw as", v: "ETH + USDC" },
+    { k: "Withdraw as", v: "USDC" },
   ];
 
   return (
@@ -341,11 +341,9 @@ function PoweredBy() {
   );
 }
 
-export function Dashboard({ onDeposit, onWithdrawn }: { onDeposit: () => void; onWithdrawn?: () => void }) {
+export function Dashboard({ onDeposit, onWithdraw }: { onDeposit: () => void; onWithdraw?: () => void }) {
   const { address } = useAccount();
   const { position, needsRebalance, config, refetch } = usePosition();
-  const publicClient = usePublicClient({ chainId: base.id });
-  const { data: walletClient } = useWalletClient({ chainId: base.id });
   const rangeWidth = position ? Number(position.tickUpper) - Number(position.tickLower) : undefined;
   const { formatted: aprFormatted } = usePoolAPR(rangeWidth);
 
@@ -379,24 +377,6 @@ export function Dashboard({ onDeposit, onWithdrawn }: { onDeposit: () => void; o
 
   const depositedUSDC = Number(formatUnits(position.depositedUSDC, 6));
   const inRange = !needsRebalance;
-
-  const handleWithdraw = async () => {
-    if (!walletClient || !publicClient) return;
-    try {
-      const hash = await walletClient.writeContract({
-        address: ADDRESSES.VAULT,
-        abi: VAULT_ABI,
-        functionName: "withdraw",
-        chain: base,
-        gas: 800_000n,
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
-      refetch();
-      onWithdrawn?.();
-    } catch (e) {
-      console.error("Withdraw failed:", e);
-    }
-  };
 
   return (
     <div className="px-12 pb-20">
@@ -435,7 +415,7 @@ export function Dashboard({ onDeposit, onWithdrawn }: { onDeposit: () => void; o
             Deposit
           </button>
           <button
-            onClick={handleWithdraw}
+            onClick={onWithdraw}
             className="px-7 py-3.5 text-sm font-semibold bg-card text-foreground border border-border rounded-xl hover:bg-surface transition-colors cursor-pointer"
           >
             Withdraw

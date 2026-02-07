@@ -6,12 +6,19 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Dashboard } from "@/components/Dashboard";
 import { DepositModal } from "@/components/DepositModal";
+import { WithdrawModal } from "@/components/WithdrawModal";
 import { usePosition } from "@/hooks/usePositions";
+import { formatUnits } from "viem";
 
 export default function PositionsPage() {
   const [showDeposit, setShowDeposit] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
   const router = useRouter();
-  const { refetch } = usePosition();
+  const { position, refetch } = usePosition();
+
+  const depositedUSDC = position
+    ? Number(formatUnits(position.depositedUSDC, 6))
+    : 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -19,7 +26,7 @@ export default function PositionsPage() {
 
       <Dashboard
         onDeposit={() => setShowDeposit(true)}
-        onWithdrawn={() => router.push("/")}
+        onWithdraw={() => setShowWithdraw(true)}
       />
 
       <Footer />
@@ -33,6 +40,21 @@ export default function PositionsPage() {
           onDeposited={() => {
             setShowDeposit(false);
             refetch();
+          }}
+        />
+      )}
+
+      {showWithdraw && (
+        <WithdrawModal
+          depositedUSDC={depositedUSDC}
+          onClose={() => {
+            setShowWithdraw(false);
+            refetch();
+          }}
+          onWithdrawn={() => {
+            setShowWithdraw(false);
+            refetch();
+            router.push("/");
           }}
         />
       )}
