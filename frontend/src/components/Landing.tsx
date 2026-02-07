@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePoolAPR } from "@/hooks/usePoolAPR";
 
 export function Landing({ onDeposit }: { onDeposit: () => void }) {
@@ -18,12 +19,20 @@ export function Landing({ onDeposit }: { onDeposit: () => void }) {
             Deposit USDC from any chain. Your LP is managed by Claude Opus 4.6 —
             an AI agent that monitors and rebalances your position 24/7.
           </p>
-          <button
-            onClick={onDeposit}
-            className="px-8 py-4 bg-foreground text-background text-sm font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer"
-          >
-            Deposit
-          </button>
+          <div className="flex items-center justify-center gap-4">
+            <button
+              onClick={onDeposit}
+              className="px-8 py-4 bg-foreground text-background text-sm font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              Deposit
+            </button>
+            <Link
+              href="/strategy"
+              className="px-8 py-4 bg-surface text-foreground text-sm font-bold rounded-xl border border-border hover:bg-border transition-colors"
+            >
+              Strategy
+            </Link>
+          </div>
         </div>
 
         {/* Value props */}

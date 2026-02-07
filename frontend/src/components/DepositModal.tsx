@@ -5,7 +5,7 @@ import { useAccount, useReadContracts, useEnsText, useEnsAvatar } from "wagmi";
 import { mainnet, base } from "wagmi/chains";
 import { formatUnits } from "viem";
 import { normalize } from "viem/ens";
-import { useDeposit } from "@/hooks/useDeposit";
+import { useDeposit, type DepositStep } from "@/hooks/useDeposit";
 import { useENSConfig, type VaultConfig } from "@/hooks/useENSConfig";
 import { ADDRESSES, ERC20_ABI, DEFAULTS, ENS_KEYS } from "@/lib/constants";
 
@@ -209,7 +209,7 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
   const [chain, setChain] = useState(0);
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
-  const { deposit, step, isLoading } = useDeposit();
+  const { depositBase, depositCrossChain, step, errorMsg, isLoading } = useDeposit();
   const { config: ensConfig, ensName, hasENS, hasENSConfig } = useENSConfig();
 
   // "Follow a strategist" — resolve any ENS name's vault config
@@ -301,8 +301,19 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
   const isBase = CHAINS[chain].id === base.id;
 
   const handleDeposit = async () => {
-    if (!amount || amountNum <= 0 || exceedsBalance || !isBase) return;
-    const success = await deposit(amount, activeConfig);
+    if (!amount || amountNum <= 0 || exceedsBalance) return;
+
+    let success: boolean;
+    if (isBase) {
+      success = await depositBase(amount, activeConfig);
+    } else {
+      success = await depositCrossChain(
+        amount,
+        activeConfig,
+        CHAINS[chain].id,
+        CHAINS[chain].usdc
+      );
+    }
     if (success) onDeposited?.();
   };
 
@@ -466,28 +477,25 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
         {/* Submit */}
         <button
           onClick={handleDeposit}
-          disabled={isLoading || !amount || amountNum <= 0 || exceedsBalance || !isBase}
+          disabled={isLoading || !amount || amountNum <= 0 || exceedsBalance}
           className="w-full py-4 text-[15px] font-bold bg-foreground text-background rounded-xl hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading
-            ? step === "approving"
-              ? "Approving USDC..."
-              : step === "depositing"
-                ? "Depositing into vault..."
-                : step === "confirming"
-                  ? "Confirming..."
-                  : "Processing..."
+            ? step === "bridging"
+              ? "Bridging via LI.FI..."
+              : step === "approving"
+                ? "Approving USDC..."
+                : step === "depositing"
+                  ? "Depositing into vault..."
+                  : step === "confirming"
+                    ? "Confirming..."
+                    : "Processing..."
             : step === "done"
               ? "Deposited!"
-              : !isBase
-                ? "Cross-chain coming soon"
-                : "Deposit"}
+              : isBase
+                ? "Deposit"
+                : `Deposit via LI.FI`}
         </button>
-        {!isBase && (
-          <p className="text-center text-[11px] text-muted mt-2">
-            Direct deposits are available on Base only. Bridge your USDC to Base first.
-          </p>
-        )}
 
         {step === "done" && (
           <p className="text-center text-xs text-accent-green mt-3 font-medium">
@@ -496,7 +504,7 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
         )}
         {step === "error" && (
           <p className="text-center text-xs text-accent-red mt-3 font-medium">
-            Transaction failed. Please try again.
+            {errorMsg || "Transaction failed. Please try again."}
           </p>
         )}
       </div>
