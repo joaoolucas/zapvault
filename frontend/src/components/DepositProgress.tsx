@@ -167,13 +167,13 @@ export function DepositProgress({
       <p className="text-[12px] text-muted mb-7">${amount} USDC into Uniswap v4 LP</p>
 
       {/* Pipeline */}
-      <div className="relative ml-3.5">
-        {/* Vertical track line */}
-        <div className="absolute left-0 top-3.5 bottom-3.5 w-[1px] bg-border -translate-x-1/2" />
+      <div className="relative">
+        {/* Vertical track line — centered on dots (dots are w-7 = 28px, center = 14px) */}
+        <div className="absolute left-3.5 top-3.5 bottom-3.5 w-[1px] bg-border -translate-x-1/2" />
         {/* Progress fill */}
         {activeIndex >= 0 && (
           <div
-            className="absolute left-0 top-3.5 w-[2px] bg-foreground -translate-x-1/2 transition-all duration-700 ease-out"
+            className="absolute left-3.5 top-3.5 w-[2px] bg-foreground -translate-x-1/2 transition-all duration-700 ease-out"
             style={{
               height: `${(activeIndex / Math.max(steps.length - 1, 1)) * 100}%`,
               maxHeight: "calc(100% - 28px)",
