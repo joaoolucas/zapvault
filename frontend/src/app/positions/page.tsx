@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAccount, useEnsName } from "wagmi";
 import { mainnet } from "wagmi/chains";
 import { Header } from "@/components/Header";
@@ -11,6 +12,7 @@ import { usePosition } from "@/hooks/usePositions";
 
 export default function PositionsPage() {
   const [showDeposit, setShowDeposit] = useState(false);
+  const router = useRouter();
   const { address } = useAccount();
   const { data: ensName } = useEnsName({
     address,
@@ -22,7 +24,10 @@ export default function PositionsPage() {
     <div className="min-h-screen bg-background text-foreground">
       <Header ensName={ensName ?? undefined} />
 
-      <Dashboard onDeposit={() => setShowDeposit(true)} />
+      <Dashboard
+        onDeposit={() => setShowDeposit(true)}
+        onWithdrawn={() => router.push("/")}
+      />
 
       <Footer />
 

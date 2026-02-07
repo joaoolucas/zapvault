@@ -340,7 +340,7 @@ function PoweredBy() {
   );
 }
 
-export function Dashboard({ onDeposit }: { onDeposit: () => void }) {
+export function Dashboard({ onDeposit, onWithdrawn }: { onDeposit: () => void; onWithdrawn?: () => void }) {
   const { address } = useAccount();
   const { position, needsRebalance, config, refetch } = usePosition();
   const publicClient = usePublicClient({ chainId: base.id });
@@ -383,6 +383,7 @@ export function Dashboard({ onDeposit }: { onDeposit: () => void }) {
       });
       await publicClient.waitForTransactionReceipt({ hash });
       refetch();
+      onWithdrawn?.();
     } catch (e) {
       console.error("Withdraw failed:", e);
     }
