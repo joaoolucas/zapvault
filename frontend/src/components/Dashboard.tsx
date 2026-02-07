@@ -319,7 +319,8 @@ export function Dashboard({ onDeposit }: { onDeposit: () => void }) {
   const { position, needsRebalance, config, refetch } = usePosition();
   const publicClient = usePublicClient({ chainId: base.id });
   const { data: walletClient } = useWalletClient({ chainId: base.id });
-  const { formatted: aprFormatted } = usePoolAPR();
+  const rangeWidth = position ? Number(position.tickUpper) - Number(position.tickLower) : undefined;
+  const { formatted: aprFormatted } = usePoolAPR(rangeWidth);
 
   if (!position) {
     return (

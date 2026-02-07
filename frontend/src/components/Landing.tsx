@@ -29,10 +29,10 @@ export function Landing({ onDeposit }: { onDeposit: () => void }) {
         {/* Value props */}
         <div className="grid grid-cols-3 gap-5 mb-12">
           <div className="bg-card border border-border rounded-2xl p-7">
-            <div className="text-[10px] text-muted uppercase tracking-[2px] mb-3">Pool APR (24h)</div>
+            <div className="text-[10px] text-muted uppercase tracking-[2px] mb-3">Concentrated APR</div>
             <div className="font-serif text-4xl font-bold text-accent-green tracking-tight mb-2">{aprFormatted}</div>
             <p className="text-xs text-muted leading-relaxed">
-              Concentrated ETH/USDC liquidity with 0.3% fee tier on Uniswap v4
+              Concentrated ETH/USDC liquidity with 0.05% fee tier on Uniswap v4
             </p>
           </div>
           <div className="bg-card border border-border rounded-2xl p-7">
@@ -57,7 +57,7 @@ export function Landing({ onDeposit }: { onDeposit: () => void }) {
           <div className="grid grid-cols-4 gap-6">
             {[
               { step: "01", title: "Deposit", desc: "Any token, any EVM chain. LI.FI swaps & bridges to Base USDC." },
-              { step: "02", title: "Split & LP", desc: "Hook swaps 50% USDC → ETH and adds concentrated liquidity." },
+              { step: "02", title: "Split & LP", desc: "Vault swaps USDC → ETH and adds concentrated liquidity on Uniswap v4." },
               { step: "03", title: "AI Monitor", desc: "Claude Opus 4.6 watches your position and market conditions." },
               { step: "04", title: "Rebalance", desc: "When out of range, the AI agent automatically rebalances." },
             ].map(({ step, title, desc }) => (
