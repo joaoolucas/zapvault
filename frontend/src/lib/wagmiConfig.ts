@@ -5,6 +5,7 @@ import { base, mainnet, arbitrum, polygon, optimism, avalanche, bsc, scroll, lin
 import { http } from "wagmi";
 
 const baseRpc = process.env.NEXT_PUBLIC_BASE_RPC_URL;
+const mainnetRpc = process.env.NEXT_PUBLIC_MAINNET_RPC_URL;
 
 export const config = getDefaultConfig({
   appName: "ZapVault",
@@ -12,7 +13,7 @@ export const config = getDefaultConfig({
   chains: [base, mainnet, arbitrum, polygon, optimism, avalanche, bsc, scroll, linea, zkSync, gnosis, fantom],
   transports: {
     [base.id]: http(baseRpc),
-    [mainnet.id]: http(),
+    [mainnet.id]: http(mainnetRpc),
     [arbitrum.id]: http(),
     [polygon.id]: http(),
     [optimism.id]: http(),

@@ -2,7 +2,7 @@
 
 import { useAccount, useEnsName, useEnsText } from "wagmi";
 import { mainnet } from "wagmi/chains";
-import { namehash } from "viem/ens";
+import { namehash, normalize } from "viem/ens";
 import { ENS_KEYS, DEFAULTS } from "@/lib/constants";
 
 export interface VaultConfig {
@@ -19,25 +19,27 @@ export function useENSConfig() {
     chainId: mainnet.id,
   });
 
+  const normalizedName = ensName ? normalize(ensName) : undefined;
+
   const { data: ensRange } = useEnsText({
-    name: ensName ?? undefined,
+    name: normalizedName,
     key: ENS_KEYS.RANGE,
     chainId: mainnet.id,
-    query: { enabled: !!ensName },
+    query: { enabled: !!normalizedName },
   });
 
   const { data: ensRebalance } = useEnsText({
-    name: ensName ?? undefined,
+    name: normalizedName,
     key: ENS_KEYS.REBALANCE,
     chainId: mainnet.id,
-    query: { enabled: !!ensName },
+    query: { enabled: !!normalizedName },
   });
 
   const { data: ensSlippage } = useEnsText({
-    name: ensName ?? undefined,
+    name: normalizedName,
     key: ENS_KEYS.SLIPPAGE,
     chainId: mainnet.id,
-    query: { enabled: !!ensName },
+    query: { enabled: !!normalizedName },
   });
 
   const hasENS = !!ensName;

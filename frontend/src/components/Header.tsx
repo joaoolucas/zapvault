@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useEnsName, useEnsAvatar } from "wagmi";
 import { mainnet } from "wagmi/chains";
+import { normalize } from "viem/ens";
 import { usePosition } from "@/hooks/usePositions";
 
 export function Header() {
@@ -17,10 +18,12 @@ export function Header() {
     chainId: mainnet.id,
   });
 
+  const normalizedName = ensName ? normalize(ensName) : undefined;
+
   const { data: ensAvatar } = useEnsAvatar({
-    name: ensName ?? undefined,
+    name: normalizedName,
     chainId: mainnet.id,
-    query: { enabled: !!ensName },
+    query: { enabled: !!normalizedName },
   });
 
   const displayName = ensName ?? (address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "");

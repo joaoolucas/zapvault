@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAccount, useReadContracts, useEnsText, useEnsAvatar } from "wagmi";
 import { mainnet, base } from "wagmi/chains";
 import { formatUnits } from "viem";
+import { normalize } from "viem/ens";
 import { useDeposit } from "@/hooks/useDeposit";
 import { useENSConfig, type VaultConfig } from "@/hooks/useENSConfig";
 import { ADDRESSES, ERC20_ABI, DEFAULTS, ENS_KEYS } from "@/lib/constants";
@@ -207,29 +208,32 @@ function ChainDropdown({
 export function DepositModal({ onClose, onDeposited }: { onClose: () => void; onDeposited?: () => void }) {
   const [chain, setChain] = useState(0);
   const [amount, setAmount] = useState("");
-  const [showStrategy, setShowStrategy] = useState(false);
   const { address } = useAccount();
   const { deposit, step, isLoading } = useDeposit();
   const { config: ensConfig, ensName, hasENS, hasENSConfig } = useENSConfig();
 
-  // "Follow a strategist" state
+  // "Follow a strategist" — resolve any ENS name's vault config
   const [followInput, setFollowInput] = useState("");
   const [followName, setFollowName] = useState<string | undefined>(undefined);
   const followDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Debounce ENS name input
   useEffect(() => {
     clearTimeout(followDebounce.current);
     const trimmed = followInput.trim();
     if (trimmed && trimmed.includes(".")) {
-      followDebounce.current = setTimeout(() => setFollowName(trimmed), 400);
+      followDebounce.current = setTimeout(() => {
+        try {
+          setFollowName(normalize(trimmed));
+        } catch {
+          setFollowName(undefined);
+        }
+      }, 400);
     } else {
       setFollowName(undefined);
     }
     return () => clearTimeout(followDebounce.current);
   }, [followInput]);
 
-  // Fetch strategist's ENS text records
   const { data: followRange } = useEnsText({
     name: followName,
     key: ENS_KEYS.RANGE,
@@ -263,33 +267,13 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
       }
     : null;
 
-  // Local overrides — start from ENS config (or defaults)
-  const [localConfig, setLocalConfig] = useState<VaultConfig>(ensConfig);
-  const [useENS, setUseENS] = useState(true);
-
-  // Strategy source: follow > own ENS > manual
-  type StrategySource = "follow" | "ens" | "manual";
-  const [strategySource, setStrategySource] = useState<StrategySource>(hasENSConfig ? "ens" : "manual");
-
-  // Sync local config when ENS data loads
-  useEffect(() => {
-    if (hasENSConfig && strategySource === "ens") {
-      setLocalConfig(ensConfig);
-    }
-  }, [hasENSConfig, ensConfig.rangeWidth, ensConfig.rebalanceThreshold, ensConfig.slippage]);
-
-  // Auto-switch to follow when strategist config loads
-  useEffect(() => {
-    if (hasFollowConfig && followName) {
-      setStrategySource("follow");
-    }
-  }, [hasFollowConfig, followName]);
-
-  const activeConfig = strategySource === "follow" && followConfig
+  // Active config: follow > own ENS > defaults
+  const isFollowing = hasFollowConfig && !!followName;
+  const activeConfig = isFollowing && followConfig
     ? followConfig
-    : strategySource === "ens" && hasENSConfig
+    : hasENSConfig
       ? ensConfig
-      : localConfig;
+      : ensConfig; // always uses ensConfig (defaults if no records)
 
   // Fetch USDC balance on all chains
   const { data: balanceResults } = useReadContracts({
@@ -381,178 +365,100 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
           </div>
         </div>
 
-        {/* Strategy config */}
+        {/* Strategy — always visible */}
         <div className="mb-6">
-          <button
-            onClick={() => setShowStrategy(!showStrategy)}
-            className="w-full flex items-center justify-between cursor-pointer"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Strategy</span>
-              {strategySource === "follow" && followConfig && followName && (
-                <span className="flex items-center gap-1.5 text-[9px] font-semibold text-accent-blue px-1.5 py-0.5 rounded bg-accent-blue-soft">
-                  {followAvatar && (
-                    <img src={followAvatar} alt="" className="w-3.5 h-3.5 rounded-full" />
-                  )}
-                  following {followName}
-                </span>
-              )}
-              {strategySource === "ens" && hasENSConfig && (
-                <span className="text-[9px] font-semibold text-accent-blue px-1.5 py-0.5 rounded bg-accent-blue-soft">
-                  via {ensName}
-                </span>
-              )}
-              {strategySource === "manual" && (
-                <span className="text-[9px] font-semibold text-muted px-1.5 py-0.5 rounded bg-surface">
-                  manual
-                </span>
-              )}
-            </div>
-            <svg
-              className={`w-3.5 h-3.5 text-muted transition-transform ${showStrategy ? "rotate-180" : ""}`}
-              viewBox="0 0 16 16"
-              fill="none"
-            >
-              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          <div className="flex items-center justify-between mb-3">
+            <label className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Strategy</label>
+            {isFollowing ? (
+              <span className="flex items-center gap-1.5 text-[10px] font-semibold text-accent-blue px-2 py-0.5 rounded bg-accent-blue-soft">
+                {followAvatar && (
+                  <img src={followAvatar} alt="" className="w-3.5 h-3.5 rounded-full" />
+                )}
+                following {followName}
+              </span>
+            ) : hasENSConfig ? (
+              <span className="text-[10px] font-semibold text-accent-blue px-2 py-0.5 rounded bg-accent-blue-soft">
+                via {ensName}
+              </span>
+            ) : (
+              <span className="text-[10px] font-semibold text-muted px-2 py-0.5 rounded bg-surface">
+                defaults
+              </span>
+            )}
+          </div>
 
-          {/* Compact summary */}
-          <div className="flex gap-3 mt-3 text-[11px]">
-            <div className="flex-1 text-center py-2 rounded-lg bg-surface">
+          {/* Config pills */}
+          <div className="flex gap-3 text-[11px]">
+            <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
               <div className="text-muted mb-0.5">Range</div>
               <div className="font-semibold text-foreground">±{activeConfig.rangeWidth / 2} ticks</div>
             </div>
-            <div className="flex-1 text-center py-2 rounded-lg bg-surface">
+            <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
               <div className="text-muted mb-0.5">Rebalance</div>
               <div className="font-semibold text-foreground">{activeConfig.rebalanceThreshold / 100}%</div>
             </div>
-            <div className="flex-1 text-center py-2 rounded-lg bg-surface">
+            <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
               <div className="text-muted mb-0.5">Slippage</div>
               <div className="font-semibold text-foreground">{activeConfig.slippage / 100}%</div>
             </div>
           </div>
 
-          {/* Expanded strategy editor */}
-          {showStrategy && (
-            <div className="mt-4 p-4 rounded-xl border border-border bg-surface/50 space-y-4">
-              {/* Follow a strategist */}
-              <div>
-                <label className="block text-[11px] text-muted mb-1.5">Follow a strategist</label>
-                <div className="flex items-center gap-2">
-                  {followAvatar && hasFollowConfig && (
-                    <img src={followAvatar} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
-                  )}
-                  <input
-                    type="text"
-                    value={followInput}
-                    onChange={(e) => setFollowInput(e.target.value)}
-                    placeholder="vitalik.eth"
-                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground placeholder:text-muted/50"
-                  />
-                </div>
-                {followName && !hasFollowConfig && (
-                  <p className="mt-1.5 text-[10px] text-muted">
-                    No vault strategy records found on {followName}
-                  </p>
-                )}
-                {followName && hasFollowConfig && (
-                  <div className="mt-2 text-[11px] text-accent-blue bg-accent-blue-soft rounded-lg p-3">
-                    Using strategy from <span className="font-semibold">{followName}</span>: range ±{followConfig!.rangeWidth / 2}, rebalance {followConfig!.rebalanceThreshold / 100}%, slippage {followConfig!.slippage / 100}%
+          {/* Follow a strategist — always visible, prominent */}
+          <div className="mt-4 p-4 rounded-xl border border-border bg-card">
+            <div className="text-[12px] font-semibold text-foreground mb-1">Follow a strategist</div>
+            <p className="text-[11px] text-muted mb-3">
+              Enter any ENS name to copy their LP strategy from their text records.
+            </p>
+            <div className="flex items-center gap-3">
+              {followAvatar && isFollowing && (
+                <img src={followAvatar} alt="" className="w-9 h-9 rounded-full flex-shrink-0 border-2 border-accent-blue" />
+              )}
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={followInput}
+                  onChange={(e) => setFollowInput(e.target.value)}
+                  placeholder="vitalik.eth"
+                  className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-[13px] text-foreground placeholder:text-muted/40 focus:border-accent-blue focus:outline-none transition-colors"
+                />
+                {followName && isFollowing && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <svg className="w-4 h-4 text-accent-green" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 8.5l3.5 3.5L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </div>
                 )}
               </div>
-
-              {/* Source selector tabs */}
-              <div className="flex gap-1.5 p-1 rounded-lg bg-surface">
-                {hasFollowConfig && followName && (
-                  <button
-                    onClick={() => setStrategySource("follow")}
-                    className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
-                      strategySource === "follow"
-                        ? "bg-accent-blue-soft text-accent-blue"
-                        : "text-muted hover:text-foreground"
-                    }`}
-                  >
-                    Follow
-                  </button>
-                )}
-                {hasENS && hasENSConfig && (
-                  <button
-                    onClick={() => setStrategySource("ens")}
-                    className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
-                      strategySource === "ens"
-                        ? "bg-accent-blue-soft text-accent-blue"
-                        : "text-muted hover:text-foreground"
-                    }`}
-                  >
-                    My ENS
-                  </button>
-                )}
-                <button
-                  onClick={() => setStrategySource("manual")}
-                  className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
-                    strategySource === "manual"
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted hover:text-foreground"
-                  }`}
-                >
-                  Manual
-                </button>
+            </div>
+            {followName && !hasFollowConfig && (
+              <p className="mt-2 text-[11px] text-muted">
+                No vault strategy records found on <span className="font-semibold">{followName}</span>
+              </p>
+            )}
+            {isFollowing && followConfig && (
+              <div className="mt-3 flex gap-2 text-[10px]">
+                <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
+                  range ±{followConfig.rangeWidth / 2}
+                </span>
+                <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
+                  rebalance {followConfig.rebalanceThreshold / 100}%
+                </span>
+                <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
+                  slippage {followConfig.slippage / 100}%
+                </span>
               </div>
+            )}
+          </div>
 
-              {/* Manual config inputs */}
-              {strategySource === "manual" && (
-                <>
-                  <div>
-                    <label className="block text-[11px] text-muted mb-1">Range Width (ticks)</label>
-                    <input
-                      type="number"
-                      value={localConfig.rangeWidth}
-                      onChange={(e) => setLocalConfig({ ...localConfig, rangeWidth: parseInt(e.target.value) || DEFAULTS.RANGE_WIDTH })}
-                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
-                    />
-                    <p className="mt-1 text-[10px] text-muted">
-                      {localConfig.rangeWidth} ticks = ±{(localConfig.rangeWidth / 2)} ticks (~{(Math.pow(1.0001, localConfig.rangeWidth) * 100 - 100).toFixed(1)}% price range)
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-muted mb-1">Rebalance Threshold (bps)</label>
-                    <input
-                      type="number"
-                      value={localConfig.rebalanceThreshold}
-                      onChange={(e) => setLocalConfig({ ...localConfig, rebalanceThreshold: parseInt(e.target.value) || DEFAULTS.REBALANCE_THRESHOLD })}
-                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
-                    />
-                    <p className="mt-1 text-[10px] text-muted">{localConfig.rebalanceThreshold} bps = {localConfig.rebalanceThreshold / 100}% price move triggers rebalance</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-muted mb-1">Max Slippage (bps)</label>
-                    <input
-                      type="number"
-                      value={localConfig.slippage}
-                      onChange={(e) => setLocalConfig({ ...localConfig, slippage: parseInt(e.target.value) || DEFAULTS.SLIPPAGE })}
-                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
-                    />
-                    <p className="mt-1 text-[10px] text-muted">{localConfig.slippage} bps = {localConfig.slippage / 100}% max slippage on swaps</p>
-                  </div>
-                </>
-              )}
-
-              {/* Info messages */}
-              {strategySource === "ens" && hasENSConfig && (
-                <div className="text-[11px] text-accent-blue bg-accent-blue-soft rounded-lg p-3">
-                  Strategy loaded from your ENS text records on {ensName}.
-                </div>
-              )}
-
-              {!hasENS && strategySource === "manual" && !hasFollowConfig && (
-                <div className="text-[10px] text-muted pt-1">
-                  Connect an ENS name and set <span className="font-mono">vault.range</span>, <span className="font-mono">vault.rebalance</span>, <span className="font-mono">vault.slippage</span> text records to auto-load your strategy.
-                </div>
-              )}
+          {/* ENS config hint */}
+          {!isFollowing && (
+            <div className="mt-3 text-[10px] text-muted text-center">
+              {hasENSConfig
+                ? `Using your strategy from ${ensName}. Follow someone above to override.`
+                : hasENS
+                  ? <>Set <span className="font-mono">vault.range</span>, <span className="font-mono">vault.rebalance</span>, <span className="font-mono">vault.slippage</span> on <a href={`https://app.ens.domains/${ensName}?tab=records`} target="_blank" rel="noopener noreferrer" className="text-accent-blue hover:underline">{ensName}</a> to customize.</>
+                  : "Using default strategy. Connect an ENS name or follow a strategist to customize."
+              }
             </div>
           )}
         </div>

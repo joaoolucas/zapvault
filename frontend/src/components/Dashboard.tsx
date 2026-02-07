@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useAccount, usePublicClient, useWalletClient, useEnsName, useEnsAvatar } from "wagmi";
 import { mainnet, base } from "wagmi/chains";
 import { formatUnits, parseAbiItem } from "viem";
+import { normalize } from "viem/ens";
 import { usePosition } from "@/hooks/usePositions";
 import { useENSConfig } from "@/hooks/useENSConfig";
 import { VAULT_ABI, ADDRESSES } from "@/lib/constants";
@@ -349,10 +350,11 @@ export function Dashboard({ onDeposit, onWithdrawn }: { onDeposit: () => void; o
   const { formatted: aprFormatted } = usePoolAPR(rangeWidth);
 
   const { data: ensName } = useEnsName({ address, chainId: mainnet.id });
+  const normalizedName = ensName ? normalize(ensName) : undefined;
   const { data: ensAvatar } = useEnsAvatar({
-    name: ensName ?? undefined,
+    name: normalizedName,
     chainId: mainnet.id,
-    query: { enabled: !!ensName },
+    query: { enabled: !!normalizedName },
   });
 
   if (!position) {
