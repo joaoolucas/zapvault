@@ -3,19 +3,6 @@
 import { useState, useEffect } from "react";
 import { DEFAULTS } from "@/lib/constants";
 
-const UNISWAP_GATEWAY = "https://interface.gateway.uniswap.org/v1/graphql";
-const V4_POOL_ID = "0x96d4b53a38337a5733179751781178a2613306063c511b78cd02684739288c0a";
-
-const QUERY = `query {
-  v4Pool(chain: BASE, poolId: "${V4_POOL_ID}") {
-    feeTier
-    totalLiquidity { value }
-    cumulativeVolume(duration: DAY) { value }
-    token0Supply
-    token1Supply
-  }
-}`;
-
 /**
  * Capital efficiency multiplier for concentrated liquidity.
  * A position covering W ticks is ~CE times more capital efficient than full-range.
@@ -38,29 +25,18 @@ export function usePoolAPR(rangeWidth?: number) {
 
     async function fetchAPR() {
       try {
-        const res = await fetch(UNISWAP_GATEWAY, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Origin: "https://app.uniswap.org",
-          },
-          body: JSON.stringify({ query: QUERY }),
-        });
+        const res = await fetch("/api/pool-apr");
+        if (!res.ok) throw new Error("API error");
 
-        const json = await res.json();
-        const pool = json?.data?.v4Pool;
-        if (!pool || cancelled) return;
+        const data = await res.json();
+        const { feeTier, tvl, volume24h } = data;
 
-        const feeTier = pool.feeTier / 1_000_000; // 500 -> 0.0005
-        const tvl = pool.totalLiquidity.value;
-        const volume24h = pool.cumulativeVolume.value;
-
-        if (tvl > 0) {
-          const baseApr = (volume24h * feeTier / tvl) * 365 * 100;
-          if (!cancelled) setPoolApr(Math.round(baseApr * 10) / 10);
+        if (tvl > 0 && !cancelled) {
+          const baseApr = (volume24h * (feeTier / 1_000_000) / tvl) * 365 * 100;
+          setPoolApr(Math.round(baseApr * 10) / 10);
         }
       } catch {
-        // Silently fail
+        // Silently fail — shows "—"
       } finally {
         if (!cancelled) setLoading(false);
       }
