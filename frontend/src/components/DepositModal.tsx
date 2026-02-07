@@ -301,9 +301,9 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
   const isBase = CHAINS[chain].id === base.id;
 
   const handleDeposit = async () => {
-    if (!amount || amountNum <= 0 || exceedsBalance) return;
-    await deposit(amount, activeConfig);
-    onDeposited?.();
+    if (!amount || amountNum <= 0 || exceedsBalance || !isBase) return;
+    const success = await deposit(amount, activeConfig);
+    if (success) onDeposited?.();
   };
 
   return (
@@ -466,7 +466,7 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
         {/* Submit */}
         <button
           onClick={handleDeposit}
-          disabled={isLoading || !amount || amountNum <= 0 || exceedsBalance}
+          disabled={isLoading || !amount || amountNum <= 0 || exceedsBalance || !isBase}
           className="w-full py-4 text-[15px] font-bold bg-foreground text-background rounded-xl hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading
@@ -479,10 +479,15 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
                   : "Processing..."
             : step === "done"
               ? "Deposited!"
-              : isBase
-                ? "Deposit"
-                : "Deposit via LI.FI"}
+              : !isBase
+                ? "Cross-chain coming soon"
+                : "Deposit"}
         </button>
+        {!isBase && (
+          <p className="text-center text-[11px] text-muted mt-2">
+            Direct deposits are available on Base only. Bridge your USDC to Base first.
+          </p>
+        )}
 
         {step === "done" && (
           <p className="text-center text-xs text-accent-green mt-3 font-medium">

@@ -16,8 +16,8 @@ export function useDeposit() {
   >("idle");
 
   const deposit = useCallback(
-    async (usdcAmount: string, config: VaultConfig) => {
-      if (!address || !walletClient || !publicClient) return;
+    async (usdcAmount: string, config: VaultConfig): Promise<boolean> => {
+      if (!address || !walletClient || !publicClient) return false;
 
       const amount = parseUnits(usdcAmount, 6);
 
@@ -53,9 +53,11 @@ export function useDeposit() {
         await publicClient.waitForTransactionReceipt({ hash: depositHash });
 
         setStep("done");
+        return true;
       } catch (e) {
         console.error("Deposit failed:", e);
         setStep("error");
+        return false;
       }
     },
     [address, walletClient, publicClient]
