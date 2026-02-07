@@ -14,16 +14,17 @@ contract ZapVaultTest is BaseTest {
         assertEq(vault.router(), address(router));
     }
 
+    function _depositViaRouter(address user, uint256 amount) internal {
+        vm.prank(user);
+        USDC.approve(address(router), amount);
+        vm.prank(user);
+        router.deposit(user, amount, 480, 500, 100);
+    }
+
     function test_deposit() public {
         uint256 depositAmount = 1000e6; // 1000 USDC
 
-        // Approve USDC to router
-        vm.startPrank(alice);
-        USDC.transfer(address(router), depositAmount);
-        vm.stopPrank();
-
-        // Call deposit via router
-        router.deposit(alice, 480, 500, 100);
+        _depositViaRouter(alice, depositAmount);
 
         // Verify position was created
         IZapVault.UserPosition memory pos = vault.getPosition(alice);
@@ -35,23 +36,19 @@ contract ZapVaultTest is BaseTest {
     function test_depositEmitsEvent() public {
         uint256 depositAmount = 1000e6;
 
-        vm.startPrank(alice);
-        USDC.transfer(address(router), depositAmount);
-        vm.stopPrank();
+        vm.prank(alice);
+        USDC.approve(address(router), depositAmount);
 
         vm.expectEmit(true, false, false, false);
         emit IZapVault.Deposited(alice, depositAmount, 0, 0, 0);
 
-        router.deposit(alice, 480, 500, 100);
+        vm.prank(alice);
+        router.deposit(alice, depositAmount, 480, 500, 100);
     }
 
     function test_withdraw() public {
-        // First deposit
         uint256 depositAmount = 1000e6;
-        vm.startPrank(alice);
-        USDC.transfer(address(router), depositAmount);
-        vm.stopPrank();
-        router.deposit(alice, 480, 500, 100);
+        _depositViaRouter(alice, depositAmount);
 
         // Verify position exists
         IZapVault.UserPosition memory pos = vault.getPosition(alice);
@@ -81,28 +78,20 @@ contract ZapVaultTest is BaseTest {
     function test_revertDoubleDeposit() public {
         uint256 depositAmount = 1000e6;
 
-        // First deposit
-        vm.startPrank(alice);
-        USDC.transfer(address(router), depositAmount);
-        vm.stopPrank();
-        router.deposit(alice, 480, 500, 100);
+        _depositViaRouter(alice, depositAmount);
 
         // Second deposit should revert
-        vm.startPrank(alice);
-        USDC.transfer(address(router), depositAmount);
-        vm.stopPrank();
+        vm.prank(alice);
+        USDC.approve(address(router), depositAmount);
 
         vm.expectRevert(ZapVault.PositionAlreadyExists.selector);
-        router.deposit(alice, 480, 500, 100);
+        vm.prank(alice);
+        router.deposit(alice, depositAmount, 480, 500, 100);
     }
 
     function test_needsRebalance() public {
         uint256 depositAmount = 1000e6;
-
-        vm.startPrank(alice);
-        USDC.transfer(address(router), depositAmount);
-        vm.stopPrank();
-        router.deposit(alice, 480, 500, 100);
+        _depositViaRouter(alice, depositAmount);
 
         // Initially should not need rebalance
         bool needs = vault.needsRebalance(alice);
@@ -111,11 +100,7 @@ contract ZapVaultTest is BaseTest {
 
     function test_configStored() public {
         uint256 depositAmount = 1000e6;
-
-        vm.startPrank(alice);
-        USDC.transfer(address(router), depositAmount);
-        vm.stopPrank();
-        router.deposit(alice, 480, 500, 100);
+        _depositViaRouter(alice, depositAmount);
 
         IZapVault.UserConfig memory config = vault.getConfig(alice);
         assertEq(config.rangeWidth, 480);

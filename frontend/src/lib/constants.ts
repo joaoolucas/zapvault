@@ -106,6 +106,7 @@ export const ROUTER_ABI = [
     name: "deposit",
     inputs: [
       { name: "user", type: "address" },
+      { name: "amount", type: "uint256" },
       { name: "rangeWidth", type: "int24" },
       { name: "rebalanceThreshold", type: "uint16" },
       { name: "slippage", type: "uint16" },

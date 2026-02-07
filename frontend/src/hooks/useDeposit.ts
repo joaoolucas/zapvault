@@ -24,10 +24,13 @@ createLiFiConfig({
 
 export type DepositStep =
   | "idle"
-  | "approving"
+  | "quoting"
+  | "approve-source"
+  | "bridge-send"
+  | "bridge-wait"
+  | "approve-base"
   | "depositing"
   | "confirming"
-  | "bridging"
   | "done"
   | "error";
 
@@ -37,6 +40,11 @@ export function useDeposit() {
   const wagmiConfig = useConfig();
   const [step, setStep] = useState<DepositStep>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+
+  const resetStep = useCallback(() => {
+    setStep("idle");
+    setErrorMsg("");
+  }, []);
 
   // Direct deposit on Base (approve + depositWithAmount)
   const depositBase = useCallback(
@@ -51,7 +59,7 @@ export function useDeposit() {
           chainId: base.id,
         });
 
-        setStep("approving");
+        setStep("approve-base");
         const approveHash = await walletClient.writeContract({
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
@@ -95,7 +103,7 @@ export function useDeposit() {
     [address, basePublicClient, wagmiConfig]
   );
 
-  // Cross-chain deposit via LI.FI: bridge to user on Base, then auto-deposit
+  // Cross-chain deposit via LI.FI: bridge to Base, then auto-deposit
   const depositCrossChain = useCallback(
     async (
       usdcAmount: string,
@@ -108,8 +116,7 @@ export function useDeposit() {
       const amount = parseUnits(usdcAmount, 6);
 
       try {
-        // Step 1: Get LI.FI quote to bridge USDC to user on Base
-        setStep("bridging");
+        setStep("quoting");
 
         const quote = await getQuote({
           fromAddress: address,
@@ -126,8 +133,7 @@ export function useDeposit() {
           throw new Error("No transaction data in LI.FI quote");
         }
 
-        // Step 2: Switch to source chain, approve, and send bridge tx
-        setStep("approving");
+        setStep("approve-source");
         await switchChain(wagmiConfig, { chainId: fromChainId });
         const sourceWallet = await getWalletClient(wagmiConfig, {
           chainId: fromChainId,
@@ -145,7 +151,7 @@ export function useDeposit() {
           chainId: fromChainId,
         });
 
-        setStep("bridging");
+        setStep("bridge-send");
         const txReq = quote.transactionRequest;
         const bridgeHash = await sourceWallet.sendTransaction({
           to: txReq.to as `0x${string}`,
@@ -159,8 +165,7 @@ export function useDeposit() {
           chainId: fromChainId,
         });
 
-        // Step 3: Poll for bridge completion
-        setStep("confirming");
+        setStep("bridge-wait");
         for (let i = 0; i < 120; i++) {
           await new Promise((r) => setTimeout(r, 5000));
           try {
@@ -181,16 +186,14 @@ export function useDeposit() {
           }
         }
 
-        // Step 4: Bridge done — USDC is in user's wallet on Base. Auto-deposit.
         await new Promise((r) => setTimeout(r, 3000));
 
-        setStep("approving");
+        setStep("approve-base");
         await switchChain(wagmiConfig, { chainId: base.id });
         const baseWallet = await getWalletClient(wagmiConfig, {
           chainId: base.id,
         });
 
-        // Read actual USDC balance on Base (bridge fees reduce the amount)
         const baseBalance = (await basePublicClient.readContract({
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
@@ -248,15 +251,15 @@ export function useDeposit() {
     [address, basePublicClient, wagmiConfig]
   );
 
+  const isLoading =
+    step !== "idle" && step !== "done" && step !== "error";
+
   return {
     depositBase,
     depositCrossChain,
     step,
     errorMsg,
-    isLoading:
-      step === "approving" ||
-      step === "depositing" ||
-      step === "confirming" ||
-      step === "bridging",
+    isLoading,
+    resetStep,
   };
 }

@@ -58,11 +58,13 @@ export function DepositWidget({ config }: DepositWidgetProps) {
 
     try {
       // Build the deposit calldata for the destination contract call
+      const usdcAmount = parseUnits(amount, 6);
       const depositCalldata = encodeFunctionData({
         abi: ROUTER_ABI,
         functionName: "deposit",
         args: [
           address,
+          usdcAmount,
           config.rangeWidth,
           config.rebalanceThreshold,
           config.slippage,

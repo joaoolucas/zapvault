@@ -20,10 +20,10 @@ contract SimDeposit is Script {
         console.log("Router USDC:", routerBal);
         console.log("Hook USDC:", IERC20(USDC).balanceOf(HOOK));
 
-        // Transfer USDC to router, then deposit (same as frontend flow)
+        // Approve router, then deposit (LI.FI Composer pattern)
         vm.startPrank(USER);
-        IERC20(USDC).transfer(ROUTER, 10e6); // 10 USDC
-        ZapVaultRouter(ROUTER).deposit(USER, 1200, 500, 100);
+        IERC20(USDC).approve(ROUTER, 10e6);
+        ZapVaultRouter(ROUTER).deposit(USER, 10e6, 1200, 500, 100);
         vm.stopPrank();
 
         console.log("Deposit succeeded!");

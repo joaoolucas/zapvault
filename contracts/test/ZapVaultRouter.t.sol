@@ -12,12 +12,13 @@ contract ZapVaultRouterTest is BaseTest {
     function test_depositViaRouter() public {
         uint256 amount = 500e6;
 
-        // Transfer USDC to router (simulating LI.FI executor behavior)
+        // Approve router to pull USDC (simulating LI.FI executor approve pattern)
         vm.prank(alice);
-        USDC.transfer(address(router), amount);
+        USDC.approve(address(router), amount);
 
         // Call deposit
-        router.deposit(alice, 480, 500, 100);
+        vm.prank(alice);
+        router.deposit(alice, amount, 480, 500, 100);
 
         // Verify position created
         IZapVault.UserPosition memory pos = vault.getPosition(alice);
@@ -27,6 +28,6 @@ contract ZapVaultRouterTest is BaseTest {
 
     function test_revertDepositZeroAmount() public {
         vm.expectRevert(ZapVaultRouter.ZeroAmount.selector);
-        router.deposit(alice, 480, 500, 100);
+        router.deposit(alice, 0, 480, 500, 100);
     }
 }

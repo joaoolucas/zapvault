@@ -336,23 +336,44 @@ contract ZapVault is IUnlockCallback, IZapVault {
         PoolKey memory key = poolKey;
         UserPosition memory pos = positions[user];
 
+        // 1. Remove liquidity
         BalanceDelta removeDelta = _modifyLiquidity(
             key, pos.tickLower, pos.tickUpper, -pos.liquidity, pos.salt
         );
 
-        uint256 ethOut = 0;
-        if (removeDelta.amount0() > 0) {
-            ethOut = uint128(removeDelta.amount0());
-            poolManager.take(key.currency0, user, ethOut);
+        int128 netEth = removeDelta.amount0();
+        int128 netUsdc = removeDelta.amount1();
+
+        // 2. Swap all recovered ETH → USDC via the pool
+        if (netEth > 0) {
+            BalanceDelta swapDelta = poolManager.swap(
+                key,
+                SwapParams({
+                    zeroForOne: true,
+                    amountSpecified: -int256(uint256(uint128(netEth))),
+                    sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                }),
+                ""
+            );
+            netEth += swapDelta.amount0();
+            netUsdc += swapDelta.amount1();
         }
 
+        // 3. Handle ETH dust (should be ~0 after swap)
+        if (netEth > 0) {
+            poolManager.take(key.currency0, address(this), uint128(netEth));
+        } else if (netEth < 0) {
+            poolManager.settle{value: uint128(-netEth)}();
+        }
+
+        // 4. Send all USDC to user
         uint256 usdcOut = 0;
-        if (removeDelta.amount1() > 0) {
-            usdcOut = uint128(removeDelta.amount1());
+        if (netUsdc > 0) {
+            usdcOut = uint128(netUsdc);
             poolManager.take(key.currency1, user, usdcOut);
         }
 
-        emit Withdrawn(user, ethOut, usdcOut);
+        emit Withdrawn(user, 0, usdcOut);
 
         delete positions[user];
         delete configs[user];

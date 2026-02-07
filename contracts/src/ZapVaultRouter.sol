@@ -54,16 +54,17 @@ contract ZapVaultRouter {
         );
     }
 
-    /// @notice Deposit using balance already in router (LI.FI Composer pattern)
+    /// @notice Deposit on behalf of user — pulls USDC from msg.sender (LI.FI Composer pattern)
     function deposit(
         address user,
+        uint256 amount,
         int24 rangeWidth,
         uint16 rebalanceThreshold,
         uint16 slippage
     ) external {
-        uint256 amount = usdc.balanceOf(address(this));
         if (amount == 0) revert ZeroAmount();
 
+        usdc.transferFrom(msg.sender, address(this), amount);
         usdc.approve(address(vault), amount);
 
         vault.deposit(

@@ -5,9 +5,10 @@ import { useAccount, useReadContracts, useEnsText, useEnsAvatar } from "wagmi";
 import { mainnet, base } from "wagmi/chains";
 import { formatUnits } from "viem";
 import { normalize } from "viem/ens";
-import { useDeposit, type DepositStep } from "@/hooks/useDeposit";
+import { useDeposit } from "@/hooks/useDeposit";
 import { useENSConfig, type VaultConfig } from "@/hooks/useENSConfig";
 import { ADDRESSES, ERC20_ABI, DEFAULTS, ENS_KEYS } from "@/lib/constants";
+import { DepositProgress } from "./DepositProgress";
 
 interface ChainInfo {
   id: number;
@@ -138,7 +139,7 @@ function ChainDropdown({
                 <ChainIcon chain={ch} size={28} />
                 <span className="flex-1 text-left text-[13px] font-medium text-foreground">{ch.name}</span>
                 <span className="text-[13px] text-muted tabular-nums">
-                  {balances[i] > 0 ? `$${balances[i].toFixed(2)}` : "—"}
+                  {balances[i] > 0 ? `$${balances[i].toFixed(2)}` : "\u2014"}
                 </span>
               </button>
             ))}
@@ -153,8 +154,10 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
   const [chain, setChain] = useState(0);
   const [amount, setAmount] = useState("");
   const { address } = useAccount();
-  const { depositBase, depositCrossChain, step, errorMsg, isLoading } = useDeposit();
+  const { depositBase, depositCrossChain, step, errorMsg, isLoading, resetStep } = useDeposit();
   const { config: ensConfig, ensName, hasENS, hasENSConfig } = useENSConfig();
+
+  const showProgress = step !== "idle";
 
   // "Follow a strategist" — resolve any ENS name's vault config
   const [followInput, setFollowInput] = useState("");
@@ -215,9 +218,7 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
   const isFollowing = hasFollowConfig && !!followName;
   const activeConfig = isFollowing && followConfig
     ? followConfig
-    : hasENSConfig
-      ? ensConfig
-      : ensConfig; // always uses ensConfig (defaults if no records)
+    : ensConfig;
 
   // Fetch USDC balance on all chains
   const { data: balanceResults } = useReadContracts({
@@ -261,195 +262,194 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
     if (success) onDeposited?.();
   };
 
+  const handleProgressClose = () => {
+    resetStep();
+    if (step === "done") {
+      onClose();
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center">
-      <div onClick={onClose} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div onClick={showProgress ? undefined : onClose} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
       <div className="relative w-[480px] max-h-[90vh] overflow-y-auto bg-card rounded-2xl p-9 border border-border shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-7">
-          <h2 className="font-serif text-2xl font-bold text-foreground tracking-tight">Deposit</h2>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-surface flex items-center justify-center text-muted text-sm hover:bg-border transition-colors cursor-pointer"
-          >
-            &#10005;
-          </button>
-        </div>
-
-        {/* Chain selector dropdown */}
-        <div className="mb-6">
-          <label className="block text-[11px] text-muted uppercase tracking-[2px] font-medium mb-2">From</label>
-          <ChainDropdown selected={chain} onSelect={setChain} balances={balances} />
-        </div>
-
-        {/* Amount input */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Amount</label>
-            <span className="text-[11px] text-muted">
-              Balance: <button onClick={() => setAmount(selectedBalance.toFixed(6))} className="font-semibold text-foreground hover:text-accent-blue transition-colors cursor-pointer">{selectedBalance.toFixed(2)} USDC</button>
-            </span>
-          </div>
-          <div className={`flex items-baseline gap-2 border-b-2 pb-2 ${exceedsBalance ? "border-accent-red" : "border-foreground"}`}>
-            <span className="text-base text-muted">$</span>
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              type="text"
-              inputMode="numeric"
-              className="text-4xl font-bold font-serif bg-transparent border-none text-foreground outline-none w-full tracking-tighter"
-              placeholder="0"
-            />
-            <span className="text-sm text-muted flex-shrink-0">USDC</span>
-          </div>
-          {exceedsBalance && (
-            <p className="text-xs text-accent-red mt-1.5 font-medium">Insufficient USDC balance on {CHAINS[chain].name}</p>
-          )}
-        </div>
-
-        {/* Route preview */}
-        <div className="p-4 rounded-xl bg-surface mb-6">
-          <div className="text-[13px] font-semibold text-foreground">
-            {isBase ? "Base" : CHAINS[chain].name} &rarr; {isBase ? "" : "Base → "}Uniswap v4 LP
-          </div>
-          <div className="text-[11px] text-muted mt-1">
-            {isBase
-              ? "Direct deposit · instant · managed by Claude Opus 4.6"
-              : "Swap + bridge via LI.FI · ~45s · fee ~$0.80"}
-          </div>
-        </div>
-
-        {/* Strategy — always visible */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <label className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Strategy</label>
-            {isFollowing ? (
-              <span className="flex items-center gap-1.5 text-[10px] font-semibold text-accent-blue px-2 py-0.5 rounded bg-accent-blue-soft">
-                {followAvatar && (
-                  <img src={followAvatar} alt="" className="w-3.5 h-3.5 rounded-full" />
-                )}
-                following {followName}
-              </span>
-            ) : hasENSConfig ? (
-              <span className="text-[10px] font-semibold text-accent-blue px-2 py-0.5 rounded bg-accent-blue-soft">
-                via {ensName}
-              </span>
-            ) : (
-              <span className="text-[10px] font-semibold text-muted px-2 py-0.5 rounded bg-surface">
-                defaults
-              </span>
-            )}
-          </div>
-
-          {/* Config pills */}
-          <div className="flex gap-3 text-[11px]">
-            <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
-              <div className="text-muted mb-0.5">Range</div>
-              <div className="font-semibold text-foreground">±{activeConfig.rangeWidth / 2} ticks</div>
+        {showProgress ? (
+          <DepositProgress
+            step={step}
+            errorMsg={errorMsg}
+            isBase={isBase}
+            chainName={CHAINS[chain].name}
+            amount={amount}
+            onClose={handleProgressClose}
+            onDone={() => {
+              onDeposited?.();
+              onClose();
+            }}
+          />
+        ) : (
+          <>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-7">
+              <h2 className="font-serif text-2xl font-bold text-foreground tracking-tight">Deposit</h2>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-lg bg-surface flex items-center justify-center text-muted text-sm hover:bg-border transition-colors cursor-pointer"
+              >
+                &#10005;
+              </button>
             </div>
-            <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
-              <div className="text-muted mb-0.5">Rebalance</div>
-              <div className="font-semibold text-foreground">{activeConfig.rebalanceThreshold / 100}%</div>
-            </div>
-            <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
-              <div className="text-muted mb-0.5">Slippage</div>
-              <div className="font-semibold text-foreground">{activeConfig.slippage / 100}%</div>
-            </div>
-          </div>
 
-          {/* Follow a strategist — always visible, prominent */}
-          <div className="mt-4 p-4 rounded-xl border border-border bg-card">
-            <div className="text-[12px] font-semibold text-foreground mb-1">Follow a strategist</div>
-            <p className="text-[11px] text-muted mb-3">
-              Enter any ENS name to copy their LP strategy from their text records.
-            </p>
-            <div className="flex items-center gap-3">
-              {followAvatar && isFollowing && (
-                <img src={followAvatar} alt="" className="w-9 h-9 rounded-full flex-shrink-0 border-2 border-accent-blue" />
-              )}
-              <div className="relative flex-1">
+            {/* Chain selector dropdown */}
+            <div className="mb-6">
+              <label className="block text-[11px] text-muted uppercase tracking-[2px] font-medium mb-2">From</label>
+              <ChainDropdown selected={chain} onSelect={setChain} balances={balances} />
+            </div>
+
+            {/* Amount input */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Amount</label>
+                <span className="text-[11px] text-muted">
+                  Balance: <button onClick={() => setAmount(selectedBalance.toFixed(6))} className="font-semibold text-foreground hover:text-accent-blue transition-colors cursor-pointer">{selectedBalance.toFixed(2)} USDC</button>
+                </span>
+              </div>
+              <div className={`flex items-baseline gap-2 border-b-2 pb-2 ${exceedsBalance ? "border-accent-red" : "border-foreground"}`}>
+                <span className="text-base text-muted">$</span>
                 <input
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
                   type="text"
-                  value={followInput}
-                  onChange={(e) => setFollowInput(e.target.value)}
-                  placeholder="vitalik.eth"
-                  className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-[13px] text-foreground placeholder:text-muted/40 focus:border-accent-blue focus:outline-none transition-colors"
+                  inputMode="numeric"
+                  className="text-4xl font-bold font-serif bg-transparent border-none text-foreground outline-none w-full tracking-tighter"
+                  placeholder="0"
                 />
-                {followName && isFollowing && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <svg className="w-4 h-4 text-accent-green" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 8.5l3.5 3.5L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                <span className="text-sm text-muted flex-shrink-0">USDC</span>
+              </div>
+              {exceedsBalance && (
+                <p className="text-xs text-accent-red mt-1.5 font-medium">Insufficient USDC balance on {CHAINS[chain].name}</p>
+              )}
+            </div>
+
+            {/* Route preview */}
+            <div className="p-4 rounded-xl bg-surface mb-6">
+              <div className="text-[13px] font-semibold text-foreground">
+                {isBase ? "Base" : CHAINS[chain].name} &rarr; {isBase ? "" : "Base \u2192 "}Uniswap v4 LP
+              </div>
+              <div className="text-[11px] text-muted mt-1">
+                {isBase
+                  ? "Direct deposit \u00B7 instant"
+                  : "Swap + bridge via LI.FI \u00B7 ~45s \u00B7 fee ~$0.80"}
+              </div>
+            </div>
+
+            {/* Strategy — always visible */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-[11px] text-muted uppercase tracking-[2px] font-medium">Strategy</label>
+                {isFollowing ? (
+                  <span className="flex items-center gap-1.5 text-[10px] font-semibold text-accent-blue px-2 py-0.5 rounded bg-accent-blue-soft">
+                    {followAvatar && (
+                      <img src={followAvatar} alt="" className="w-3.5 h-3.5 rounded-full" />
+                    )}
+                    following {followName}
+                  </span>
+                ) : hasENSConfig ? (
+                  <span className="text-[10px] font-semibold text-accent-blue px-2 py-0.5 rounded bg-accent-blue-soft">
+                    via {ensName}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold text-muted px-2 py-0.5 rounded bg-surface">
+                    defaults
+                  </span>
+                )}
+              </div>
+
+              {/* Config pills */}
+              <div className="flex gap-3 text-[11px]">
+                <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
+                  <div className="text-muted mb-0.5">Range</div>
+                  <div className="font-semibold text-foreground">&plusmn;{activeConfig.rangeWidth / 2} ticks</div>
+                </div>
+                <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
+                  <div className="text-muted mb-0.5">Rebalance</div>
+                  <div className="font-semibold text-foreground">{activeConfig.rebalanceThreshold / 100}%</div>
+                </div>
+                <div className="flex-1 text-center py-2.5 rounded-xl bg-surface">
+                  <div className="text-muted mb-0.5">Slippage</div>
+                  <div className="font-semibold text-foreground">{activeConfig.slippage / 100}%</div>
+                </div>
+              </div>
+
+              {/* Follow a strategist */}
+              <div className="mt-4 p-4 rounded-xl border border-border bg-card">
+                <div className="text-[12px] font-semibold text-foreground mb-1">Follow a strategist</div>
+                <p className="text-[11px] text-muted mb-3">
+                  Enter any ENS name to copy their LP strategy from their text records.
+                </p>
+                <div className="flex items-center gap-3">
+                  {followAvatar && isFollowing && (
+                    <img src={followAvatar} alt="" className="w-9 h-9 rounded-full flex-shrink-0 border-2 border-accent-blue" />
+                  )}
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={followInput}
+                      onChange={(e) => setFollowInput(e.target.value)}
+                      placeholder="vitalik.eth"
+                      className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-[13px] text-foreground placeholder:text-muted/40 focus:border-accent-blue focus:outline-none transition-colors"
+                    />
+                    {followName && isFollowing && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <svg className="w-4 h-4 text-accent-green" viewBox="0 0 16 16" fill="none">
+                          <path d="M3 8.5l3.5 3.5L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {followName && !hasFollowConfig && (
+                  <p className="mt-2 text-[11px] text-muted">
+                    No vault strategy records found on <span className="font-semibold">{followName}</span>
+                  </p>
+                )}
+                {isFollowing && followConfig && (
+                  <div className="mt-3 flex gap-2 text-[10px]">
+                    <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
+                      range &plusmn;{followConfig.rangeWidth / 2}
+                    </span>
+                    <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
+                      rebalance {followConfig.rebalanceThreshold / 100}%
+                    </span>
+                    <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
+                      slippage {followConfig.slippage / 100}%
+                    </span>
                   </div>
                 )}
               </div>
+
+              {/* ENS config hint */}
+              {!isFollowing && (
+                <div className="mt-3 text-[10px] text-muted text-center">
+                  {hasENSConfig
+                    ? `Using your strategy from ${ensName}. Follow someone above to override.`
+                    : hasENS
+                      ? <>Set <span className="font-mono">vault.range</span>, <span className="font-mono">vault.rebalance</span>, <span className="font-mono">vault.slippage</span> on <a href={`https://app.ens.domains/${ensName}?tab=records`} target="_blank" rel="noopener noreferrer" className="text-accent-blue hover:underline">{ensName}</a> to customize.</>
+                      : "Using default strategy. Connect an ENS name or follow a strategist to customize."
+                  }
+                </div>
+              )}
             </div>
-            {followName && !hasFollowConfig && (
-              <p className="mt-2 text-[11px] text-muted">
-                No vault strategy records found on <span className="font-semibold">{followName}</span>
-              </p>
-            )}
-            {isFollowing && followConfig && (
-              <div className="mt-3 flex gap-2 text-[10px]">
-                <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
-                  range ±{followConfig.rangeWidth / 2}
-                </span>
-                <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
-                  rebalance {followConfig.rebalanceThreshold / 100}%
-                </span>
-                <span className="px-2 py-1 rounded-lg bg-accent-blue-soft text-accent-blue font-semibold">
-                  slippage {followConfig.slippage / 100}%
-                </span>
-              </div>
-            )}
-          </div>
 
-          {/* ENS config hint */}
-          {!isFollowing && (
-            <div className="mt-3 text-[10px] text-muted text-center">
-              {hasENSConfig
-                ? `Using your strategy from ${ensName}. Follow someone above to override.`
-                : hasENS
-                  ? <>Set <span className="font-mono">vault.range</span>, <span className="font-mono">vault.rebalance</span>, <span className="font-mono">vault.slippage</span> on <a href={`https://app.ens.domains/${ensName}?tab=records`} target="_blank" rel="noopener noreferrer" className="text-accent-blue hover:underline">{ensName}</a> to customize.</>
-                  : "Using default strategy. Connect an ENS name or follow a strategist to customize."
-              }
-            </div>
-          )}
-        </div>
-
-        {/* Submit */}
-        <button
-          onClick={handleDeposit}
-          disabled={isLoading || !amount || amountNum <= 0 || exceedsBalance}
-          className="w-full py-4 text-[15px] font-bold bg-foreground text-background rounded-xl hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLoading
-            ? step === "bridging"
-              ? "Bridging via LI.FI..."
-              : step === "approving"
-                ? "Approving USDC..."
-                : step === "depositing"
-                  ? "Depositing into vault..."
-                  : step === "confirming"
-                    ? "Confirming..."
-                    : "Processing..."
-            : step === "done"
-              ? "Deposited!"
-              : isBase
-                ? "Deposit"
-                : `Deposit via LI.FI`}
-        </button>
-
-        {step === "done" && (
-          <p className="text-center text-xs text-accent-green mt-3 font-medium">
-            Position created. Claude Opus 4.6 is now managing your LP.
-          </p>
-        )}
-        {step === "error" && (
-          <p className="text-center text-xs text-accent-red mt-3 font-medium">
-            {errorMsg || "Transaction failed. Please try again."}
-          </p>
+            {/* Submit */}
+            <button
+              onClick={handleDeposit}
+              disabled={isLoading || !amount || amountNum <= 0 || exceedsBalance}
+              className="w-full py-4 text-[15px] font-bold bg-foreground text-background rounded-xl hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isBase ? "Deposit" : `Deposit via LI.FI`}
+            </button>
+          </>
         )}
       </div>
     </div>

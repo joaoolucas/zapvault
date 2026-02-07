@@ -6,6 +6,8 @@ import { http } from "wagmi";
 
 const baseRpc = process.env.NEXT_PUBLIC_BASE_RPC_URL;
 const mainnetRpc = process.env.NEXT_PUBLIC_MAINNET_RPC_URL;
+const arbitrumRpc = process.env.NEXT_PUBLIC_ARBITRUM_RPC_URL;
+const polygonRpc = process.env.NEXT_PUBLIC_POLYGON_RPC_URL;
 
 export const config = getDefaultConfig({
   appName: "ZapVault",
@@ -14,8 +16,8 @@ export const config = getDefaultConfig({
   transports: {
     [base.id]: http(baseRpc),
     [mainnet.id]: http(mainnetRpc),
-    [arbitrum.id]: http("https://arbitrum-one-rpc.publicnode.com"),
-    [polygon.id]: http("https://polygon-bor-rpc.publicnode.com"),
+    [arbitrum.id]: http(arbitrumRpc),
+    [polygon.id]: http(polygonRpc),
   },
   ssr: true,
 });
