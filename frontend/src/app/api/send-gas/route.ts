@@ -10,7 +10,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 
 const GAS_AMOUNT = parseEther("0.0002"); // ~$0.60 — covers hundreds of Base txs
-const MIN_ETH_BALANCE = parseEther("0.0001"); // skip if user already has this much
+const MIN_ETH_BALANCE = parseEther("0.0005"); // skip if user already has this much
 
 // Lazy-init clients (env vars unavailable at build time)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
