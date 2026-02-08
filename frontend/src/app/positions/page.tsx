@@ -18,18 +18,19 @@ export default function PositionsPage() {
   const { isConnected } = useAccount();
   const { position, hasPosition, refetch } = usePosition();
 
-  // Redirect to home if not connected or no position
+  // Redirect to home if not connected or no position — but NOT while withdrawing
   useEffect(() => {
+    if (showWithdraw) return;
     if (!isConnected || (isConnected && position !== undefined && !hasPosition)) {
       router.replace("/");
     }
-  }, [isConnected, position, hasPosition, router]);
+  }, [isConnected, position, hasPosition, router, showWithdraw]);
 
   const depositedUSDC = position
     ? Number(formatUnits(position.depositedUSDC, 6))
     : 0;
 
-  if (!isConnected || !hasPosition) {
+  if (!showWithdraw && (!isConnected || !hasPosition)) {
     return null;
   }
 
@@ -60,10 +61,7 @@ export default function PositionsPage() {
       {showWithdraw && (
         <WithdrawModal
           depositedUSDC={depositedUSDC}
-          onClose={() => {
-            setShowWithdraw(false);
-            refetch();
-          }}
+          onClose={() => setShowWithdraw(false)}
           onWithdrawn={() => {
             setShowWithdraw(false);
             refetch();
