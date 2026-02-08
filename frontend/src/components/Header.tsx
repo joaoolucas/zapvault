@@ -36,36 +36,46 @@ export function Header() {
           <span className="font-normal">Vault</span>
         </Link>
 
-        {isConnected && (
-          <nav className="flex items-center gap-1">
-            <Link
-              href="/"
-              className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
-                pathname === "/" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
-              }`}
-            >
-              Home
-            </Link>
-            {hasPosition && (
+        <nav className="flex items-center gap-1">
+          {isConnected && (
+            <>
               <Link
-                href="/positions"
+                href="/"
                 className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
-                  pathname === "/positions" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+                  pathname === "/" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
                 }`}
               >
-                Positions
+                Home
               </Link>
-            )}
-            <Link
-              href="/strategy"
-              className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
-                pathname === "/strategy" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
-              }`}
-            >
-              Strategy
-            </Link>
-          </nav>
-        )}
+              {hasPosition && (
+                <Link
+                  href="/positions"
+                  className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
+                    pathname === "/positions" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  Positions
+                </Link>
+              )}
+              <Link
+                href="/strategy"
+                className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
+                  pathname === "/strategy" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+                }`}
+              >
+                Strategy
+              </Link>
+            </>
+          )}
+          <Link
+            href="/docs"
+            className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
+              pathname === "/docs" ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+            }`}
+          >
+            Docs
+          </Link>
+        </nav>
       </div>
 
       <div className="flex items-center gap-3 text-sm">
