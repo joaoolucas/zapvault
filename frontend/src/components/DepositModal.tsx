@@ -11,6 +11,72 @@ import { ADDRESSES, ERC20_ABI, DEFAULTS, ENS_KEYS } from "@/lib/constants";
 import { DepositProgress } from "./DepositProgress";
 import { CHAINS, ChainDropdown } from "./ChainSelector";
 
+const FEATURED_STRATEGISTS = ["joaoliberato.eth", "0xliberato.eth"] as const;
+
+function StrategistCard({
+  name,
+  selected,
+  onSelect,
+}: {
+  name: string;
+  selected: boolean;
+  onSelect: (name: string) => void;
+}) {
+  const normalized = normalize(name);
+  const { data: avatar } = useEnsAvatar({
+    name: normalized,
+    chainId: mainnet.id,
+  });
+  const { data: range } = useEnsText({
+    name: normalized,
+    key: ENS_KEYS.RANGE,
+    chainId: mainnet.id,
+  });
+  const { data: rebalance } = useEnsText({
+    name: normalized,
+    key: ENS_KEYS.REBALANCE,
+    chainId: mainnet.id,
+  });
+  const { data: slippage } = useEnsText({
+    name: normalized,
+    key: ENS_KEYS.SLIPPAGE,
+    chainId: mainnet.id,
+  });
+
+  const hasConfig = !!(range || rebalance || slippage);
+  const rw = range ? parseInt(range) || DEFAULTS.RANGE_WIDTH : DEFAULTS.RANGE_WIDTH;
+  const rb = rebalance ? parseInt(rebalance) || DEFAULTS.REBALANCE_THRESHOLD : DEFAULTS.REBALANCE_THRESHOLD;
+  const sl = slippage ? parseInt(slippage) || DEFAULTS.SLIPPAGE : DEFAULTS.SLIPPAGE;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(name)}
+      className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-xl border transition-colors cursor-pointer ${
+        selected
+          ? "border-accent-blue bg-accent-blue-soft"
+          : "border-border bg-surface hover:border-muted"
+      }`}
+    >
+      {avatar ? (
+        <img src={avatar} alt="" className="w-8 h-8 rounded-full" />
+      ) : (
+        <div className="w-8 h-8 rounded-full bg-border flex items-center justify-center text-[11px] font-bold text-muted">
+          {name.charAt(0).toUpperCase()}
+        </div>
+      )}
+      <span className="text-[11px] font-semibold text-foreground truncate max-w-full">{name}</span>
+      {hasConfig && (
+        <div className="flex flex-wrap justify-center gap-1">
+          <span className="px-1.5 py-0.5 rounded bg-card text-[9px] text-muted font-medium">&plusmn;{rw / 2}</span>
+          <span className="px-1.5 py-0.5 rounded bg-card text-[9px] text-muted font-medium">{rb / 100}%</span>
+          <span className="px-1.5 py-0.5 rounded bg-card text-[9px] text-muted font-medium">{sl / 100}%</span>
+        </div>
+      )}
+    </button>
+  );
+}
+
 export function DepositModal({ onClose, onDeposited }: { onClose: () => void; onDeposited?: () => void }) {
   const [chain, setChain] = useState(0);
   const [amount, setAmount] = useState("");
@@ -246,8 +312,18 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
               <div className="mt-4 p-4 rounded-xl border border-border bg-card">
                 <div className="text-[12px] font-semibold text-foreground mb-1">Follow a strategist</div>
                 <p className="text-[11px] text-muted mb-3">
-                  Enter any ENS name to copy their LP strategy from their text records.
+                  Pick a featured strategist or enter any ENS name to copy their LP strategy.
                 </p>
+                <div className="flex gap-2 mb-3">
+                  {FEATURED_STRATEGISTS.map((s) => (
+                    <StrategistCard
+                      key={s}
+                      name={s}
+                      selected={followName === normalize(s)}
+                      onSelect={(n) => setFollowInput(n)}
+                    />
+                  ))}
+                </div>
                 <div className="flex items-center gap-3">
                   {followAvatar && isFollowing && (
                     <img src={followAvatar} alt="" className="w-9 h-9 rounded-full flex-shrink-0 border-2 border-accent-blue" />

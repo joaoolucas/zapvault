@@ -149,7 +149,7 @@ export default function DocsPage() {
                     Cross-Chain
                   </div>
                   <p className="text-[12px] text-muted leading-relaxed">
-                    Deposit from Ethereum, Arbitrum, Optimism, or Base. LI.FI bridges and swaps
+                    Deposit from Ethereum, Arbitrum, Polygon, or Base. LI.FI bridges and swaps
                     your tokens into USDC on Base automatically.
                   </p>
                 </Card>
@@ -300,7 +300,7 @@ export default function DocsPage() {
                   </p>
                   <Card>
                     <div className="space-y-4">
-                      <Step n={1} title="Select source chain & token" desc="User picks any EVM chain (Ethereum, Arbitrum, Optimism) and any token." />
+                      <Step n={1} title="Select source chain & token" desc="User picks any EVM chain (Ethereum, Arbitrum, Polygon) and any token." />
                       <Step n={2} title="LI.FI bridges to Base" desc="LI.FI routes the swap and bridge to deliver USDC on Base to the router contract." />
                       <Step n={3} title="Router deposits" desc="The Composer call invokes deposit(user, amount, ...) which uses transferFrom to move USDC into the vault and provision LP." />
                     </div>
@@ -553,10 +553,10 @@ export default function DocsPage() {
                       <td className="py-2.5 font-mono text-[11px]">0xaf88d065e77c8cC2239327C5EDb3A432268e5831</td>
                     </tr>
                     <tr>
-                      <td className="py-2.5 pr-4 font-medium text-foreground">Optimism</td>
-                      <td className="py-2.5 pr-4 font-mono">10</td>
+                      <td className="py-2.5 pr-4 font-medium text-foreground">Polygon</td>
+                      <td className="py-2.5 pr-4 font-mono">137</td>
                       <td className="py-2.5 pr-4">Deposit source</td>
-                      <td className="py-2.5 font-mono text-[11px]">0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85</td>
+                      <td className="py-2.5 font-mono text-[11px]">0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359</td>
                     </tr>
                   </tbody>
                 </table>

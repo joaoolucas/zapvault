@@ -9,6 +9,7 @@ import { usePosition } from "@/hooks/usePositions";
 import { useENSConfig } from "@/hooks/useENSConfig";
 import { ADDRESSES } from "@/lib/constants";
 import { usePoolAPR } from "@/hooks/usePoolAPR";
+import Link from "next/link";
 
 function tickToPrice(tick: number): number {
   return Math.pow(1.0001, tick) * 1e12;
@@ -301,22 +302,24 @@ function StrategyPanel({ config }: { config: any }) {
           <span className="text-foreground font-bold">{v}</span>
         </div>
       ))}
-      {hasENS ? (
+      <Link
+        href="/strategy"
+        className="mt-4 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-foreground text-background text-[12px] font-bold hover:opacity-90 transition-opacity"
+      >
+        {hasENSConfig ? "Edit Strategy" : "Set Strategy"}
+      </Link>
+      {hasENS && (
         <a
           href={`https://app.ens.domains/${ensName}?tab=records`}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-4 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-surface text-[12px] font-semibold text-accent-blue hover:bg-border transition-colors"
+          className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-muted hover:text-accent-blue transition-colors"
         >
-          {hasENSConfig ? "Edit on ENS" : "Set Records on ENS"}
-          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
+          Edit directly on ENS
+          <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none">
             <path d="M6 3h7v7M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </a>
-      ) : (
-        <div className="mt-4 text-[11px] text-muted text-center py-2 px-3 rounded-lg bg-surface">
-          Connect an ENS name to configure strategy via text records
-        </div>
       )}
     </div>
   );
