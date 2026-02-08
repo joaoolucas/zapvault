@@ -14,7 +14,6 @@ const CROSS_CHAIN_STEPS: PipelineStep[] = [
   { key: "approve-source", label: "Approve", detail: "Approve USDC on source chain" },
   { key: "bridge-send", label: "Bridge", detail: "Sending cross-chain transfer" },
   { key: "bridge-wait", label: "Confirming bridge", detail: "Waiting for bridge confirmation" },
-  { key: "sending-gas", label: "Preparing gas", detail: "Sending gas to your wallet on Base" },
   { key: "approve-base", label: "Approve on Base", detail: "Approve USDC for vault deposit" },
   { key: "depositing", label: "Deposit into vault", detail: "Creating your LP position" },
   { key: "confirming", label: "Finalizing", detail: "Confirming on-chain" },
@@ -79,6 +78,13 @@ export function DepositProgress({
   const activeIndex = getStepIndex(step, steps);
   const isDone = step === "done";
   const isError = step === "error";
+
+  // Auto-redirect to positions page after success
+  useEffect(() => {
+    if (!isDone) return;
+    const t = setTimeout(() => onDone(), 2000);
+    return () => clearTimeout(t);
+  }, [isDone, onDone]);
 
   // Elapsed timer
   const [elapsed, setElapsed] = useState(0);

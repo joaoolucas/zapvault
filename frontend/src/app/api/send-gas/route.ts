@@ -9,7 +9,8 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 
-const GAS_AMOUNT = parseEther("0.00005"); // ~$0.15 — covers dozens of Base txs
+const GAS_AMOUNT = parseEther("0.0002"); // ~$0.60 — covers hundreds of Base txs
+const MIN_ETH_BALANCE = parseEther("0.0001"); // skip if user already has this much
 
 // Lazy-init clients (env vars unavailable at build time)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
 
     // Skip if user already has enough ETH for gas
     const ethBalance = await pub.getBalance({ address: address as `0x${string}` });
-    if (ethBalance > GAS_AMOUNT) {
+    if (ethBalance >= MIN_ETH_BALANCE) {
       return NextResponse.json({ hash: null, skipped: true });
     }
 
