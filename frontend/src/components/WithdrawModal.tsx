@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { base } from "wagmi/chains";
-import { formatUnits } from "viem";
 import { useWithdraw, type WithdrawStep } from "@/hooks/useWithdraw";
 import { CHAINS, ChainIcon, ChainDropdown } from "./ChainSelector";
 
@@ -269,6 +268,10 @@ export function WithdrawModal({
   const [chain, setChain] = useState(0);
   const { withdrawBase, withdrawCrossChain, step, errorMsg, isLoading, resetStep } = useWithdraw();
 
+  // Snapshot the deposited amount on mount so it doesn't become $0 after withdrawal
+  const snapshotRef = useRef(depositedUSDC);
+  const displayUSDC = snapshotRef.current;
+
   const showProgress = step !== "idle";
   const isBase = CHAINS[chain].id === base.id;
 
@@ -306,7 +309,7 @@ export function WithdrawModal({
             errorMsg={errorMsg}
             isBase={isBase}
             chainName={CHAINS[chain].name}
-            depositedUSDC={depositedUSDC}
+            depositedUSDC={displayUSDC}
             onClose={handleProgressClose}
             onDone={() => {
               onWithdrawn?.();
@@ -331,7 +334,7 @@ export function WithdrawModal({
               <div className="text-[11px] text-muted uppercase tracking-[2px] font-medium mb-2">Your Position</div>
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-bold font-serif text-foreground tracking-tighter">
-                  ${depositedUSDC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${displayUSDC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
                 <span className="text-sm text-muted">USDC</span>
               </div>
@@ -371,7 +374,7 @@ export function WithdrawModal({
             {/* Submit */}
             <button
               onClick={handleWithdraw}
-              disabled={isLoading || depositedUSDC <= 0}
+              disabled={isLoading || displayUSDC <= 0}
               className="w-full py-4 text-[15px] font-bold bg-foreground text-background rounded-xl hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isBase ? "Withdraw" : `Withdraw to ${CHAINS[chain].name}`}
