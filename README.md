@@ -1,6 +1,6 @@
 # ZapVault
 
-Cross-chain automated LP provision on Uniswap v4. Deposit any token from any EVM chain → get concentrated ETH/USDC liquidity on Base.
+Cross-chain automated LP provision on Uniswap v4. Deposit any token from any EVM chain, get concentrated ETH/USDC liquidity on Base with AI-managed rebalancing.
 
 ## Architecture
 
@@ -8,62 +8,72 @@ Cross-chain automated LP provision on Uniswap v4. Deposit any token from any EVM
 User (any chain, any token)
   → LI.FI Composer (swap + bridge + contract call)
   → USDC on Base → ZapVaultRouter.deposit()
-  → ZapVaultHook: swap 50% USDC→ETH, add concentrated liquidity
-  → afterSwap() monitors price, emits NeedsRebalance
-  → Frontend/keeper calls hook.rebalance() when flagged
+  → ZapVault: oracle-centered range, swap USDC→ETH, add concentrated liquidity
+  → AI Keeper monitors positions, calls rebalance() when price drifts
+  → Withdraw converts everything to USDC-only
 ```
+
+ZapVault is a standalone vault implementing `IUnlockCallback`. It calls `poolManager.unlock()` and performs all pool operations (swap + modifyLiquidity) atomically inside the callback using v4's flash accounting. No custom hook is needed. The vault works with the existing hookless ETH/USDC 0.05% pool on Base.
 
 ## Prize Tracks
 
-- **Uniswap v4 Agentic Finance** — Custom hook with automated concentrated LP management
-- **LI.FI** — Composer integration for cross-chain deposit in a single transaction
-- **ENS** — Strategy configuration via ENS text records (`vault.range`, `vault.rebalance`, `vault.slippage`)
+| Bounty | Integration |
+|--------|-------------|
+| **Uniswap Foundation** | Standalone vault using v4 PoolManager for concentrated LP management |
+| **LI.FI** | Composer-compatible router for cross-chain deposits in a single transaction |
+| **ENS** | Strategy configuration via text records (`vault.range`, `vault.rebalance`, `vault.slippage`) |
 
 ## Project Structure
 
 ```
 zapvault/
-├── contracts/                  # Foundry (Solidity 0.8.26, Cancun EVM)
+├── contracts/                  # Foundry (Solidity 0.8.26, Cancun EVM, via_ir)
 │   ├── src/
-│   │   ├── ZapVaultHook.sol   # Uniswap v4 hook — core LP management
-│   │   ├── ZapVaultRouter.sol # LI.FI entry point
+│   │   ├── ZapVault.sol        # Standalone vault, IUnlockCallback
+│   │   ├── ZapVaultRouter.sol  # LI.FI Composer-compatible entry point
 │   │   └── interfaces/IZapVault.sol
-│   ├── test/
-│   │   ├── ZapVaultHook.t.sol
-│   │   ├── ZapVaultRouter.t.sol
-│   │   └── utils/BaseTest.sol
-│   └── script/
-│       ├── DeployHook.s.sol   # CREATE2 + HookMiner deployment
-│       └── DeployRouter.s.sol
-├── frontend/                   # Next.js 16 + Tailwind + wagmi + RainbowKit
+│   └── test/
+├── frontend/                   # Next.js 16 + Tailwind + wagmi v3 + RainbowKit
 │   └── src/
-│       ├── app/               # Landing page + Dashboard
-│       ├── components/        # DepositWidget, ENSConfigPanel, PositionCard
-│       └── hooks/             # useENSConfig, usePositions, useDeposit
+│       ├── app/                # Pages: home, positions, strategy, docs
+│       ├── components/         # DepositModal, ENSConfigPanel, WithdrawModal
+│       └── hooks/              # useENSConfig, usePositions, useDeposit, useWithdraw
 └── pnpm-workspace.yaml
 ```
 
 ## Smart Contracts
 
-### ZapVaultHook (Uniswap v4 Hook)
+### ZapVault
 
-- **Hook permissions**: `afterInitialize` + `afterSwap`
-- **deposit()**: Swaps ~50% USDC→ETH, provisions concentrated liquidity centered on current price
-- **rebalance()**: Removes old position, re-centers at new price
-- **withdraw()**: Removes position, returns ETH + USDC to user
-- **afterSwap()**: Monitors price drift, emits rebalance signals
-- Deployed with CREATE2 via HookMiner for correct address bits
+Standalone vault implementing `IUnlockCallback`. Manages per-user concentrated LP positions on any existing v4 pool.
 
-### ZapVaultRouter (LI.FI Entry Point)
+| Function | Description |
+|----------|-------------|
+| `deposit(user, usdcAmount, config)` | Oracle-centered range, swap + provision LP |
+| `withdraw()` | Remove LP, swap ETH→USDC, send USDC to user |
+| `rebalance(user)` | Remove old position, re-center on oracle price |
+| `needsRebalance(user)` | Check if price drifted beyond threshold |
+| `getPosition(user)` | View position details |
+| `getConfig(user)` | View user's strategy config |
 
-- Called by LI.FI executor after bridging USDC to Base
-- Passes through to hook with user config (range, rebalance threshold, slippage)
+### ZapVaultRouter
 
-### Key Addresses (Base Mainnet)
+LI.FI Composer-compatible entry point. Handles USDC transfers and passes through to the vault.
 
-- PoolManager: `0x498581fF718922c3f8e6A244956aF099B2652b2b`
-- USDC: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
-- ETH: native (`address(0)`)
+| Function | Description |
+|----------|-------------|
+| `depositWithAmount(amount, range, threshold, slippage)` | Direct deposit from Base |
+| `deposit(user, amount, range, threshold, slippage)` | Composer-compatible (explicit user address) |
+
+### Deployed Addresses (Base Mainnet)
+
+| Contract | Address |
+|----------|---------|
+| ZapVault | `0xc77d3CCFba9354db99972D11d994676d55709d5C` |
+| ZapVaultRouter | `0x3F75D8E28A148380B186AcedcDE476F8E1CFDd78` |
+| PoolManager (v4) | `0x498581fF718922c3f8e6A244956aF099B2652b2b` |
+| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+| Chainlink ETH/USD | `0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70` |
 
 ## ENS Integration
 
@@ -71,20 +81,31 @@ Strategy configuration stored as ENS text records on mainnet:
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `vault.range` | Tick range width | 1200 |
+| `vault.range` | Tick range width | 600 |
 | `vault.rebalance` | Rebalance threshold (bps) | 500 (5%) |
-| `vault.slippage` | Max slippage (bps) | 100 (1%) |
+| `vault.slippage` | Max slippage (bps) | 50 (0.5%) |
 
-Frontend reads ENS records and passes as calldata to Base contracts.
+Anyone can follow a strategist's ENS name when depositing to auto-fill their published config.
 
 ## LI.FI Composer
 
-The deposit widget uses LI.FI's ContractCalls API to build a single transaction that:
-1. Swaps source token on source chain
-2. Bridges to Base as USDC
-3. Calls `ZapVaultRouter.deposit()` with user's config
+The router's `deposit()` function is Composer-compatible. A cross-chain deposit works in a single user transaction:
 
-User signs **one transaction** on their source chain.
+1. LI.FI swaps the source token on the source chain
+2. Bridges to Base as USDC
+3. Composer calls `ZapVaultRouter.deposit(user, amount, ...)` as the final step
+
+On withdraw, LI.FI bridges USDC from Base back to the user's origin chain. LI.Fuel provides gas abstraction so users don't need Base ETH.
+
+## AI Keeper
+
+A Vercel Cron serverless function powered by Claude Opus 4.6. Each tick it:
+
+1. Discovers all active depositors
+2. Calls `needsRebalance()` for each position
+3. Executes `rebalance()` when price drifts beyond the user's threshold
+
+The keeper is non-custodial. If it goes down, positions stay active and users can withdraw at any time.
 
 ## Setup
 
@@ -94,7 +115,7 @@ User signs **one transaction** on their source chain.
 cd contracts
 forge install
 forge build
-forge test --fork-url $BASE_RPC_URL -vvv
+forge test --match-path "test/*"
 ```
 
 ### Frontend
@@ -108,27 +129,20 @@ pnpm dev
 ### Environment
 
 ```bash
-# .env
-BASE_RPC_URL=https://mainnet.base.org
-PRIVATE_KEY=0x...
-NEXT_PUBLIC_HOOK_ADDRESS=0x...
-NEXT_PUBLIC_ROUTER_ADDRESS=0x...
+# frontend/.env.local
+NEXT_PUBLIC_VAULT_ADDRESS=0xc77d3CCFba9354db99972D11d994676d55709d5C
+NEXT_PUBLIC_ROUTER_ADDRESS=0x3F75D8E28A148380B186AcedcDE476F8E1CFDd78
 NEXT_PUBLIC_WC_PROJECT_ID=...
-```
-
-### Deploy
-
-```bash
-# 1. Deploy hook (mines CREATE2 salt for correct address bits)
-forge script script/DeployHook.s.sol --rpc-url $BASE_RPC_URL --broadcast
-
-# 2. Deploy router + initialize pool
-HOOK_ADDRESS=0x... forge script script/DeployRouter.s.sol --rpc-url $BASE_RPC_URL --broadcast
+ANTHROPIC_API_KEY=...
+CRON_SECRET=...
 ```
 
 ## Tech Stack
 
-- **Contracts**: Solidity 0.8.26, Foundry, Uniswap v4 Core/Periphery, OpenZeppelin
-- **Frontend**: Next.js 16, Tailwind CSS, wagmi v3, viem v2, RainbowKit
-- **Integrations**: LI.FI Composer API, ENS Text Records
-- **Chain**: Base Mainnet (8453)
+| Layer | Technologies |
+|-------|-------------|
+| Contracts | Solidity 0.8.26, Foundry, Uniswap v4 Core/Periphery |
+| Frontend | Next.js 16, TypeScript, Tailwind CSS, wagmi v3, viem, RainbowKit |
+| Integrations | LI.FI SDK + Composer, Chainlink Price Feeds, ENS Text Records |
+| AI Keeper | Claude Opus 4.6, Vercel Cron |
+| Chain | Base Mainnet (8453) |
