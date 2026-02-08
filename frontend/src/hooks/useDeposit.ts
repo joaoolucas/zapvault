@@ -3,11 +3,12 @@
 import { useCallback, useState } from "react";
 import { useAccount, usePublicClient, useConfig } from "wagmi";
 import { base } from "wagmi/chains";
-import { parseUnits } from "viem";
+import { maxUint256, parseUnits } from "viem";
 import {
   switchChain,
   getWalletClient,
   waitForTransactionReceipt,
+  readContract,
 } from "wagmi/actions";
 import {
   createConfig as createLiFiConfig,
@@ -28,6 +29,7 @@ export type DepositStep =
   | "approve-source"
   | "bridge-send"
   | "bridge-wait"
+  | "sending-gas"
   | "approve-base"
   | "depositing"
   | "confirming"
@@ -59,17 +61,26 @@ export function useDeposit() {
           chainId: base.id,
         });
 
-        setStep("approve-base");
-        const approveHash = await walletClient.writeContract({
+        const allowance = (await basePublicClient.readContract({
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
-          functionName: "approve",
-          args: [ADDRESSES.ROUTER, amount],
-          chain: base,
-        });
-        await basePublicClient.waitForTransactionReceipt({
-          hash: approveHash,
-        });
+          functionName: "allowance",
+          args: [address, ADDRESSES.ROUTER],
+        })) as bigint;
+
+        if (allowance < amount) {
+          setStep("approve-base");
+          const approveHash = await walletClient.writeContract({
+            address: ADDRESSES.USDC,
+            abi: ERC20_ABI,
+            functionName: "approve",
+            args: [ADDRESSES.ROUTER, maxUint256],
+            chain: base,
+          });
+          await basePublicClient.waitForTransactionReceipt({
+            hash: approveHash,
+          });
+        }
 
         setStep("depositing");
         const depositHash = await walletClient.writeContract({
@@ -127,31 +138,39 @@ export function useDeposit() {
           fromAmount: amount.toString(),
           toAddress: address,
           slippage: config.slippage / 10000,
-          // LI.Fuel: convert some bridged USDC into ETH on Base for gas
-          fromAmountForGas: "500000", // 0.50 USDC → ETH for approve + deposit gas
         });
 
         if (!quote.transactionRequest) {
           throw new Error("No transaction data in LI.FI quote");
         }
 
-        setStep("approve-source");
         await switchChain(wagmiConfig, { chainId: fromChainId });
         const sourceWallet = await getWalletClient(wagmiConfig, {
           chainId: fromChainId,
         });
 
         const lifiContract = quote.transactionRequest.to as `0x${string}`;
-        const approveHash = await sourceWallet.writeContract({
+        const sourceAllowance = (await readContract(wagmiConfig, {
           address: fromTokenAddress as `0x${string}`,
           abi: ERC20_ABI,
-          functionName: "approve",
-          args: [lifiContract, amount],
-        });
-        await waitForTransactionReceipt(wagmiConfig, {
-          hash: approveHash,
+          functionName: "allowance",
+          args: [address, lifiContract],
           chainId: fromChainId,
-        });
+        })) as bigint;
+
+        if (sourceAllowance < amount) {
+          setStep("approve-source");
+          const approveHash = await sourceWallet.writeContract({
+            address: fromTokenAddress as `0x${string}`,
+            abi: ERC20_ABI,
+            functionName: "approve",
+            args: [lifiContract, maxUint256],
+          });
+          await waitForTransactionReceipt(wagmiConfig, {
+            hash: approveHash,
+            chainId: fromChainId,
+          });
+        }
 
         setStep("bridge-send");
         const txReq = quote.transactionRequest;
@@ -190,6 +209,18 @@ export function useDeposit() {
 
         await new Promise((r) => setTimeout(r, 3000));
 
+        // Send gas from keeper wallet so user can approve + deposit
+        setStep("sending-gas");
+        const gasRes = await fetch("/api/send-gas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address }),
+        });
+        if (!gasRes.ok) {
+          const gasErr = await gasRes.json();
+          throw new Error(gasErr.error || "Failed to send gas");
+        }
+
         setStep("approve-base");
         await switchChain(wagmiConfig, { chainId: base.id });
         const baseWallet = await getWalletClient(wagmiConfig, {
@@ -208,16 +239,25 @@ export function useDeposit() {
           throw new Error("No USDC received on Base after bridge");
         }
 
-        const baseApproveHash = await baseWallet.writeContract({
+        const baseAllowance = (await basePublicClient.readContract({
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
-          functionName: "approve",
-          args: [ADDRESSES.ROUTER, depositAmount],
-          chain: base,
-        });
-        await basePublicClient.waitForTransactionReceipt({
-          hash: baseApproveHash,
-        });
+          functionName: "allowance",
+          args: [address, ADDRESSES.ROUTER],
+        })) as bigint;
+
+        if (baseAllowance < depositAmount) {
+          const baseApproveHash = await baseWallet.writeContract({
+            address: ADDRESSES.USDC,
+            abi: ERC20_ABI,
+            functionName: "approve",
+            args: [ADDRESSES.ROUTER, maxUint256],
+            chain: base,
+          });
+          await basePublicClient.waitForTransactionReceipt({
+            hash: baseApproveHash,
+          });
+        }
 
         setStep("depositing");
         const depositHash = await baseWallet.writeContract({
