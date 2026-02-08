@@ -32,6 +32,12 @@ export function Landing({ onDeposit }: { onDeposit: () => void }) {
             >
               Strategy
             </Link>
+            <Link
+              href="/docs"
+              className="px-8 py-4 bg-surface text-foreground text-sm font-bold rounded-xl border border-border hover:bg-border transition-colors"
+            >
+              Docs
+            </Link>
           </div>
         </div>
 
