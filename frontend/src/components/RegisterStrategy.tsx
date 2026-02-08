@@ -75,34 +75,62 @@ function StrategyForm({
       const resolverAddr = await publicClient.getEnsResolver({ name: normalized });
       if (!resolverAddr) throw new Error("Could not find ENS resolver");
 
-      const calls = [
-        encodeFunctionData({
-          abi: RESOLVER_ABI,
-          functionName: "setText",
-          args: [node, ENS_KEYS.RANGE, range],
-        }),
-        encodeFunctionData({
-          abi: RESOLVER_ABI,
-          functionName: "setText",
-          args: [node, ENS_KEYS.REBALANCE, rebalance],
-        }),
-        encodeFunctionData({
-          abi: RESOLVER_ABI,
-          functionName: "setText",
-          args: [node, ENS_KEYS.SLIPPAGE, slippage],
-        }),
+      const textRecords: [string, string][] = [
+        [ENS_KEYS.RANGE, range],
+        [ENS_KEYS.REBALANCE, rebalance],
+        [ENS_KEYS.SLIPPAGE, slippage],
       ];
 
-      const hash = await walletClient.writeContract({
-        address: resolverAddr,
-        abi: RESOLVER_ABI,
-        functionName: "multicall",
-        args: [calls],
-        chain: mainnet,
-      });
+      // Try multicall first (single tx), fall back to individual setText if resolver doesn't support it
+      let usedMulticall = false;
+      try {
+        const calls = textRecords.map(([key, value]) =>
+          encodeFunctionData({
+            abi: RESOLVER_ABI,
+            functionName: "setText",
+            args: [node, key, value],
+          })
+        );
 
-      setStatus("confirming");
-      await publicClient.waitForTransactionReceipt({ hash });
+        await publicClient.simulateContract({
+          address: resolverAddr,
+          abi: RESOLVER_ABI,
+          functionName: "multicall",
+          args: [calls],
+          account: address,
+        });
+
+        const hash = await walletClient.writeContract({
+          address: resolverAddr,
+          abi: RESOLVER_ABI,
+          functionName: "multicall",
+          args: [calls],
+          chain: mainnet,
+          account: address,
+        });
+
+        setStatus("confirming");
+        await publicClient.waitForTransactionReceipt({ hash });
+        usedMulticall = true;
+      } catch {
+        // multicall failed — fall back to individual setText calls
+      }
+
+      if (!usedMulticall) {
+        for (let i = 0; i < textRecords.length; i++) {
+          const [key, value] = textRecords[i];
+          const hash = await walletClient.writeContract({
+            address: resolverAddr,
+            abi: RESOLVER_ABI,
+            functionName: "setText",
+            args: [node, key, value],
+            chain: mainnet,
+            account: address,
+          });
+          setStatus("confirming");
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
+      }
       setStatus("done");
       setTimeout(onSaved, 1500);
     } catch (e: any) {
@@ -183,7 +211,7 @@ function StrategyForm({
       )}
 
       <p className="text-[10px] text-muted text-center mt-4">
-        Writes 3 text records to {ensName} on Ethereum Mainnet in a single transaction.
+        Writes 3 text records to {ensName} on Ethereum Mainnet.
       </p>
     </>
   );
