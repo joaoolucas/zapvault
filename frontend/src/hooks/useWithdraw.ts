@@ -93,6 +93,14 @@ export function useWithdraw() {
           chainId: base.id,
         });
 
+        // Snapshot USDC balance before withdraw
+        const balanceBefore = (await basePublicClient.readContract({
+          address: ADDRESSES.USDC,
+          abi: ERC20_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        })) as bigint;
+
         setStep("withdrawing");
         const hash = await walletClient.writeContract({
           address: ADDRESSES.VAULT,
@@ -105,15 +113,16 @@ export function useWithdraw() {
         setStep("confirming");
         await basePublicClient.waitForTransactionReceipt({ hash });
 
-        // Step 2: Read USDC balance on Base after withdrawal
-        const usdcBalance = (await basePublicClient.readContract({
+        // Step 2: Bridge only the amount received from the vault (delta)
+        const balanceAfter = (await basePublicClient.readContract({
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
           functionName: "balanceOf",
           args: [address],
         })) as bigint;
 
-        if (usdcBalance === 0n) {
+        const withdrawnAmount = balanceAfter - balanceBefore;
+        if (withdrawnAmount <= 0n) {
           throw new Error("No USDC received from vault withdrawal");
         }
 
@@ -125,7 +134,7 @@ export function useWithdraw() {
           toChain: targetChainId,
           fromToken: ADDRESSES.USDC,
           toToken: targetUsdcAddress,
-          fromAmount: usdcBalance.toString(),
+          fromAmount: withdrawnAmount.toString(),
           toAddress: address,
           slippage: 0.01,
           fromAmountForGas: "100000", // 0.10 USDC → native gas on destination chain
@@ -142,7 +151,7 @@ export function useWithdraw() {
           address: ADDRESSES.USDC,
           abi: ERC20_ABI,
           functionName: "approve",
-          args: [lifiContract, usdcBalance],
+          args: [lifiContract, withdrawnAmount],
           chain: base,
         });
         await basePublicClient.waitForTransactionReceipt({
