@@ -81,17 +81,17 @@ function StrategyForm({
         [ENS_KEYS.SLIPPAGE, slippage],
       ];
 
-      // Try multicall first (single tx), fall back to individual setText if resolver doesn't support it
-      let usedMulticall = false;
-      try {
-        const calls = textRecords.map(([key, value]) =>
-          encodeFunctionData({
-            abi: RESOLVER_ABI,
-            functionName: "setText",
-            args: [node, key, value],
-          })
-        );
+      const calls = textRecords.map(([key, value]) =>
+        encodeFunctionData({
+          abi: RESOLVER_ABI,
+          functionName: "setText",
+          args: [node, key, value],
+        })
+      );
 
+      // Pre-simulate before wallet prompt to catch reverts with a useful message
+      let useMulticall = false;
+      try {
         await publicClient.simulateContract({
           address: resolverAddr,
           abi: RESOLVER_ABI,
@@ -99,33 +99,47 @@ function StrategyForm({
           args: [calls],
           account: address,
         });
+        useMulticall = true;
+      } catch {
+        // multicall not supported, try individual setText
+        try {
+          await publicClient.simulateContract({
+            address: resolverAddr,
+            abi: RESOLVER_ABI,
+            functionName: "setText",
+            args: [node, textRecords[0][0], textRecords[0][1]],
+            account: address,
+          });
+        } catch (simErr: any) {
+          const reason = simErr?.cause?.reason || simErr?.cause?.shortMessage || simErr?.shortMessage || "";
+          throw new Error(
+            reason
+              ? `Resolver reverted: ${reason}`
+              : `Your ENS resolver (${resolverAddr.slice(0, 10)}…) rejected setText. Visit app.ens.domains/${normalized} and update your resolver to the latest version, then try again.`
+          );
+        }
+      }
 
+      setStatus("saving");
+
+      if (useMulticall) {
         const hash = await walletClient.writeContract({
           address: resolverAddr,
           abi: RESOLVER_ABI,
           functionName: "multicall",
           args: [calls],
           chain: mainnet,
-          account: address,
         });
-
         setStatus("confirming");
         await publicClient.waitForTransactionReceipt({ hash });
-        usedMulticall = true;
-      } catch {
-        // multicall failed — fall back to individual setText calls
-      }
-
-      if (!usedMulticall) {
-        for (let i = 0; i < textRecords.length; i++) {
-          const [key, value] = textRecords[i];
+      } else {
+        for (const [key, value] of textRecords) {
           const hash = await walletClient.writeContract({
             address: resolverAddr,
             abi: RESOLVER_ABI,
             functionName: "setText",
             args: [node, key, value],
             chain: mainnet,
-            account: address,
           });
           setStatus("confirming");
           await publicClient.waitForTransactionReceipt({ hash });
