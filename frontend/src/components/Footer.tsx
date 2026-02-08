@@ -7,7 +7,7 @@ export function Footer() {
         Uniswap v4 Hook &middot; LI.FI Composer &middot; ENS Text Records
       </span>
       <span className="text-[11px] text-muted">
-        HackMoney 2026 &middot; Base
+        HackMoney 2026
       </span>
     </footer>
   );
