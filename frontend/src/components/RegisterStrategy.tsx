@@ -3,10 +3,21 @@
 import { useState, useEffect } from "react";
 import { useAccount, usePublicClient, useWalletClient, useSwitchChain } from "wagmi";
 import { mainnet } from "wagmi/chains";
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, getContract } from "viem";
 import { namehash, normalize } from "viem/ens";
 import { useENSConfig } from "@/hooks/useENSConfig";
 import { ENS_KEYS, DEFAULTS } from "@/lib/constants";
+
+const ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as const;
+const ENS_REGISTRY_ABI = [
+  {
+    name: "owner",
+    type: "function",
+    inputs: [{ name: "node", type: "bytes32" }],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+] as const;
 
 const RESOLVER_ABI = [
   {
@@ -110,12 +121,27 @@ function StrategyForm({
             args: [node, textRecords[0][0], textRecords[0][1]],
             account: address,
           });
-        } catch (simErr: any) {
-          const reason = simErr?.cause?.reason || simErr?.cause?.shortMessage || simErr?.shortMessage || "";
+        } catch {
+          // setText also reverts — diagnose why
+          const registryOwner = await publicClient.readContract({
+            address: ENS_REGISTRY,
+            abi: ENS_REGISTRY_ABI,
+            functionName: "owner",
+            args: [node],
+          });
+
+          const ownerIsUser = registryOwner.toLowerCase() === address.toLowerCase();
+
+          if (!ownerIsUser) {
+            // Name is likely wrapped (registry owner = NameWrapper, not user)
+            // Old resolver can't check NameWrapper → setText reverts
+            throw new Error(
+              `Your name is wrapped but uses an outdated resolver that doesn't recognize you as the owner. Go to app.ens.domains/${normalized}, click "Profile" → "Update resolver", then try again.`
+            );
+          }
+
           throw new Error(
-            reason
-              ? `Resolver reverted: ${reason}`
-              : `Your ENS resolver (${resolverAddr.slice(0, 10)}…) rejected setText. Visit app.ens.domains/${normalized} and update your resolver to the latest version, then try again.`
+            `Resolver (${resolverAddr.slice(0, 10)}…) rejected setText. Try updating your resolver at app.ens.domains/${normalized}.`
           );
         }
       }
@@ -219,9 +245,24 @@ function StrategyForm({
         </p>
       )}
       {status === "error" && (
-        <p className="text-center text-[12px] text-accent-red mt-3 font-medium">
-          {errorMsg || "Transaction failed. Please try again."}
-        </p>
+        <div className="text-center mt-3">
+          <p className="text-[12px] text-accent-red font-medium">
+            {errorMsg || "Transaction failed. Please try again."}
+          </p>
+          {errorMsg?.includes("resolver") && ensName && (
+            <a
+              href={`https://app.ens.domains/${ensName}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 mt-2 text-[11px] font-semibold text-accent-blue hover:underline"
+            >
+              Open {ensName} on ENS
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none">
+                <path d="M6 3h7v7M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </a>
+          )}
+        </div>
       )}
 
       <p className="text-[10px] text-muted text-center mt-4">
