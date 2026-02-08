@@ -261,12 +261,12 @@ export function DepositModal({ onClose, onDeposited }: { onClose: () => void; on
             {/* Route preview */}
             <div className="p-4 rounded-xl bg-surface mb-6">
               <div className="text-[13px] font-semibold text-foreground">
-                {isBase ? "Base" : CHAINS[chain].name} &rarr; Uniswap v4 LP
+                {isBase ? "Base" : CHAINS[chain].name} &rarr; {isBase ? "" : "Base \u2192 "}Uniswap v4 LP
               </div>
               <div className="text-[11px] text-muted mt-1">
                 {isBase
                   ? "Direct deposit \u00B7 instant"
-                  : "Bridge + deposit via LI.FI \u00B7 ~45s \u00B7 no gas needed on Base"}
+                  : "Bridge via LI.FI \u00B7 ~45s \u00B7 gas included"}
               </div>
             </div>
 

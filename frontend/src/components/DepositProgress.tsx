@@ -10,10 +10,13 @@ interface PipelineStep {
 }
 
 const CROSS_CHAIN_STEPS: PipelineStep[] = [
-  { key: "quoting", label: "Finding route", detail: "Getting best bridge + deposit quote via LI.FI" },
+  { key: "quoting", label: "Finding route", detail: "Getting best bridge quote via LI.FI" },
   { key: "approve-source", label: "Approve", detail: "Approve USDC on source chain" },
-  { key: "bridge-send", label: "Bridge & deposit", detail: "Sending cross-chain transfer + vault deposit" },
-  { key: "bridge-wait", label: "Confirming", detail: "LI.FI is bridging and depositing into your vault" },
+  { key: "bridge-send", label: "Bridge", detail: "Sending cross-chain transfer" },
+  { key: "bridge-wait", label: "Confirming bridge", detail: "Waiting for bridge + gas delivery" },
+  { key: "approve-base", label: "Approve on Base", detail: "Approve USDC for vault deposit" },
+  { key: "depositing", label: "Deposit into vault", detail: "Creating your LP position" },
+  { key: "confirming", label: "Finalizing", detail: "Confirming on-chain" },
 ];
 
 const BASE_STEPS: PipelineStep[] = [
@@ -246,7 +249,7 @@ export function DepositProgress({
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5" opacity="0.2" />
             <path d="M12 2a10 10 0 019.95 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
-          <span className="text-[11px] text-muted font-medium">Bridge + deposit in progress — usually takes 30-90 seconds</span>
+          <span className="text-[11px] text-muted font-medium">Bridge in progress — this usually takes 30-90 seconds</span>
         </div>
       )}
     </div>
